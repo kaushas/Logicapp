@@ -1,0 +1,16 @@
+{
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        ".mule": true
+    },
+    "azureLogicAppsStandard.deploySubpath": ".",
+    "azureLogicAppsStandard.projectLanguage": "JavaScript",
+    "azureLogicAppsStandard.projectRuntime": "~4",
+    "debug.internalConsoleOptions": "neverOpen",
+    "azureFunctions.suppressProject": true,
+    "chat.planAgent.defaultModel": "Claude Sonnet 4.5 (copilot)"
+}

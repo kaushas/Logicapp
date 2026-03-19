@@ -1,0 +1,45 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.5.2.0
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "JwtAuthStub", "src\JwtAuthStub\JwtAuthStub.csproj", "{17CA5156-79E5-0E8A-0E55-205D18EC7904}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LogicAppProcessor", "src\LogicAppProcessor\LogicAppProcessor.csproj", "{45234648-1FB0-B7FA-2ECE-4371551CA5BB}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LogicAppProcessor.Tests", "tests\LogicAppProcessor.Tests\LogicAppProcessor.Tests.csproj", "{9B3A9AF1-F0B3-38F6-3BB4-6319DF457278}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{17CA5156-79E5-0E8A-0E55-205D18EC7904}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{17CA5156-79E5-0E8A-0E55-205D18EC7904}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{17CA5156-79E5-0E8A-0E55-205D18EC7904}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{17CA5156-79E5-0E8A-0E55-205D18EC7904}.Release|Any CPU.Build.0 = Release|Any CPU
+		{45234648-1FB0-B7FA-2ECE-4371551CA5BB}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{45234648-1FB0-B7FA-2ECE-4371551CA5BB}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{45234648-1FB0-B7FA-2ECE-4371551CA5BB}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{45234648-1FB0-B7FA-2ECE-4371551CA5BB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9B3A9AF1-F0B3-38F6-3BB4-6319DF457278}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9B3A9AF1-F0B3-38F6-3BB4-6319DF457278}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9B3A9AF1-F0B3-38F6-3BB4-6319DF457278}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9B3A9AF1-F0B3-38F6-3BB4-6319DF457278}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{17CA5156-79E5-0E8A-0E55-205D18EC7904} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{45234648-1FB0-B7FA-2ECE-4371551CA5BB} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{9B3A9AF1-F0B3-38F6-3BB4-6319DF457278} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {45BFC5CE-BF9A-4561-9E3D-0E752AC97443}
+	EndGlobalSection
+EndGlobal

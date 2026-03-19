@@ -1,0 +1,114 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "generateDebugSymbols",
+			"command": "${config:azureLogicAppsStandard.dotnetBinaryPath}",
+			"args": [
+				"${input:getDebugSymbolDll}"
+			],
+			"type": "process",
+			"problemMatcher": "$msCompile"
+		},
+		{
+			"type": "shell",
+			"command": "${config:azureLogicAppsStandard.funcCoreToolsBinaryPath}",
+			"args": [
+				"host",
+				"start"
+			],
+			"options": {
+				"env": {
+					"PATH": "${config:azureLogicAppsStandard.autoRuntimeDependenciesPath}\\NodeJs;${config:azureLogicAppsStandard.autoRuntimeDependenciesPath}\\DotNetSDK;$env:PATH"
+				}
+			},
+			"problemMatcher": "$func-watch",
+			"isBackground": true,
+			"label": "func: host start",
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "Start Logic App (Port 7071)",
+			"type": "shell",
+			"command": "func",
+			"args": [
+				"host",
+				"start",
+				"--port",
+				"7071"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/LogicApp/sktestlogicapp"
+			},
+			"isBackground": true,
+			"problemMatcher": "$func-watch",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"group": "services"
+			}
+		},
+		{
+			"label": "Start LogicAppProcessor (Port 7072)",
+			"type": "shell",
+			"command": "func",
+			"args": [
+				"host",
+				"start",
+				"--port",
+				"7072"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/src/LogicAppProcessor"
+			},
+			"isBackground": true,
+			"problemMatcher": "$func-watch",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"group": "services"
+			}
+		},
+		{
+			"label": "Start JwtAuthStub (Port 7073)",
+			"type": "shell",
+			"command": "func",
+			"args": [
+				"host",
+				"start",
+				"--port",
+				"7073"
+			],
+			"options": {
+				"cwd": "${workspaceFolder}/src/JwtAuthStub"
+			},
+			"isBackground": true,
+			"problemMatcher": "$func-watch",
+			"presentation": {
+				"reveal": "always",
+				"panel": "dedicated",
+				"group": "services"
+			}
+		},
+		{
+			"label": "Start All Services",
+			"dependsOn": [
+				"Start Logic App (Port 7071)",
+				"Start LogicAppProcessor (Port 7072)",
+				"Start JwtAuthStub (Port 7073)"
+			],
+			"dependsOrder": "parallel",
+			"problemMatcher": []
+		}
+	],
+	"inputs": [
+		{
+			"id": "getDebugSymbolDll",
+			"type": "command",
+			"command": "azureLogicAppsStandard.getDebugSymbolDll"
+		}
+	]
+}
