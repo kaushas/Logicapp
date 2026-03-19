@@ -1,0 +1,94 @@
+## Azure Functions and Logic Apps
+bin/
+obj/
+*.user
+*.suo
+appsettings.json
+local.settings.json
+__blobstorage__
+__queuestorage__
+__azurite_db*__.json
+.debug/
+
+## C# / .NET Build Outputs
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+## Build Results
+*.dll
+*.exe
+*.pdb
+*.cache
+*.ilk
+*.log
+*.tlog
+*.vspscc
+*.vssscc
+*.pidb
+*.svclog
+*.scc
+
+## Visual Studio cache/options
+.vs/
+.vscode/settings.json
+.vscode/launch.json
+*.code-workspace
+
+## NuGet Packages
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## Test Results
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.trx
+*.coverage
+*.coveragexml
+
+## Entity Framework
+*.mdf
+*.ldf
+*.ndf
+**/Migrations/*.Designer.cs
+!**/Migrations/*_InitialCreate.Designer.cs
+
+## Rider
+.idea/
+*.sln.iml
+
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+## Node.js (if any)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+## Azure Local Storage Emulator
+__azurite_*.json
+
+## Keep certain files
+!**/lib/builtinOperationSdks/**
