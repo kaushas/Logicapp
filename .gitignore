@@ -90,8 +90,5 @@ yarn-error.log*
 ## Azure Local Storage Emulator
 __azurite_*.json
 
-## Nested git repositories
-LogicApp/.git/
-
 ## Keep certain files
 !**/lib/builtinOperationSdks/**
