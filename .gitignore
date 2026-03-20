@@ -90,5 +90,10 @@ yarn-error.log*
 ## Azure Local Storage Emulator
 __azurite_*.json
 
+## Deployment Artifacts
+workflows.zip
+*.deployment.log
+infrastructure.parameters.local.json
+
 ## Keep certain files
 !**/lib/builtinOperationSdks/**
