@@ -1,0 +1,10 @@
+{
+  "name": "sktestlogicapp",
+  "version": "1.0.0",
+  "description": "Azure Logic Apps Standard - Message Processing with Inbox/Outbox Pattern",
+  "scripts": {
+    "start": "func start"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

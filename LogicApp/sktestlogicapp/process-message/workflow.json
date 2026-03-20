@@ -1,0 +1,384 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Initialize_Correlation_ID": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "CorrelationId",
+              "type": "string",
+              "value": "@{coalesce(triggerOutputs()?['headers']?['x-correlation-id'], guid())}"
+            }
+          ]
+        },
+        "runAfter": {},
+        "description": "Extract or generate correlation ID for end-to-end tracing - Best Practice #8"
+      },
+      "Log_Request_Received": {
+        "type": "Compose",
+        "inputs": {
+          "correlationId": "@variables('CorrelationId')",
+          "event": "MessageReceived",
+          "timestamp": "@utcNow()",
+          "workflow": "process-message"
+        },
+        "runAfter": {
+          "Initialize_Correlation_ID": [
+            "Succeeded"
+          ]
+        },
+        "description": "Log to Application Insights - Best Practice #7"
+      },
+      "Compute_Message_ID": {
+        "type": "JavaScriptCode",
+        "inputs": {
+          "code": "// Compute message ID using SHA256 hash for idempotency\nconst crypto = require('crypto');\nconst rawPayload = workflowContext.trigger.outputs.body;\nconst messageId = crypto.createHash('sha256').update(JSON.stringify(rawPayload)).digest('hex');\nreturn { messageId: messageId, rawPayload: JSON.stringify(rawPayload) };"
+        },
+        "runAfter": {
+          "Log_Request_Received": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "retryPolicy": {
+            "type": "none"
+          }
+        },
+        "description": "Deterministic operation - NO RETRY (Best Practice #9)"
+      },
+      "Query_Inbox": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "sql"
+            }
+          },
+          "method": "get",
+          "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Inbox]'))}/items",
+          "queries": {
+            "$filter": "MessageId eq '@{body('Compute_Message_ID')?['messageId']}'",
+            "$top": 1
+          }
+        },
+        "runAfter": {
+          "Compute_Message_ID": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "retryPolicy": {
+            "type": "exponential",
+            "count": 3,
+            "interval": "PT5S",
+            "maximumInterval": "PT20S",
+            "minimumInterval": "PT5S"
+          }
+        },
+        "description": "Idempotent read - RETRY ENABLED (Best Practice #9)"
+      },
+      "Check_Inbox_For_Duplicate": {
+        "type": "Query",
+        "inputs": {
+          "from": "@body('Query_Inbox')?['value']",
+          "where": "@equals(item()?['MessageId'], body('Compute_Message_ID')?['messageId'])"
+        },
+        "runAfter": {
+          "Query_Inbox": [
+            "Succeeded"
+          ]
+        },
+        "description": "In-memory filter - NO RETRY needed"
+      },
+      "Is_Duplicate": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "greater": [
+                "@length(body('Check_Inbox_For_Duplicate'))",
+                0
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "Log_Duplicate_Detected": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('CorrelationId')",
+              "messageId": "@body('Compute_Message_ID')?['messageId']",
+              "event": "DuplicateDetected",
+              "timestamp": "@utcNow()"
+            },
+            "runAfter": {},
+            "description": "Log duplicate to Application Insights"
+          },
+          "Return_Duplicate_Response": {
+            "type": "Response",
+            "kind": "Http",
+            "inputs": {
+              "statusCode": 200,
+              "headers": {
+                "x-correlation-id": "@variables('CorrelationId')"
+              },
+              "body": {
+                "status": "Duplicate",
+                "messageId": "@{body('Compute_Message_ID')?['messageId']}",
+                "correlationId": "@variables('CorrelationId')"
+              }
+            },
+            "runAfter": {
+              "Log_Duplicate_Detected": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "runAfter": {
+          "Check_Inbox_For_Duplicate": [
+            "Succeeded"
+          ]
+        },
+        "else": {
+          "actions": {
+            "Insert_Into_Inbox": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "referenceName": "sql"
+                  }
+                },
+                "method": "post",
+                 "body": {
+                  "MessageId": "@{body('Compute_Message_ID')?['messageId']}",
+                  "SourceTopic": "@{coalesce(triggerOutputs()?['headers']?['x-source-topic'], 'customerToCanonical')}",
+                  "CorrelationId": "@variables('CorrelationId')",
+                  "RawPayload": "@{body('Compute_Message_ID')?['rawPayload']}",
+                  "ReceivedAt": "@{utcNow()}"
+                },
+                "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Inbox]'))}/items"
+              },
+              "runAfter": {},
+              "runtimeConfiguration": {
+                "retryPolicy": {
+                  "type": "none"
+                }
+              },
+              "description": "Idempotent by UNIQUE constraint on MessageId - RETRY DISABLED (Best Practice #9)"
+            },
+            "Determine_Template_Name": {
+              "type": "Compose",
+              "inputs": "@{coalesce(triggerOutputs()?['headers']?['x-source-topic'], 'customerToCanonical')}",
+              "runAfter": {
+                "Insert_Into_Inbox": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Transform_With_Liquid": {
+              "type": "Liquid",
+              "kind": "JsonToJson",
+              "inputs": {
+                "content": "@triggerBody()",
+                "map": {
+                  "source": "LogicApp",
+                  "name": "@{outputs('Determine_Template_Name')}.liquid"
+                }
+              },
+              "runAfter": {
+                "Determine_Template_Name": [
+                  "Succeeded"
+                ]
+              },
+              "runtimeConfiguration": {
+                "retryPolicy": {
+                  "type": "none"
+                }
+              },
+              "description": "Deterministic transformation - RETRY DISABLED (Best Practice #4)"
+            },
+            "Parse_Canonical_Event": {
+              "type": "ParseJson",
+              "inputs": {
+                "content": "@body('Transform_With_Liquid')",
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "eventType": {
+                      "type": "string"
+                    },
+                    "subject": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "eventTime": {
+                      "type": "string"
+                    },
+                    "schemaVersion": {
+                      "type": "string"
+                    },
+                    "contentType": {
+                      "type": "string"
+                    },
+                    "correlationId": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "object"
+                    }
+                  }
+                }
+              },
+              "runAfter": {
+                "Transform_With_Liquid": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Insert_Into_Outbox": {
+              "type": "ApiConnection",
+              "inputs": {
+                "host": {
+                  "connection": {
+                    "referenceName": "sql"
+                  }
+                },
+                "method": "post",
+                "body": {
+                  "MessageId": "@{body('Compute_Message_ID')?['messageId']}",
+                  "Destination": "ServiceBusCanonical",
+                  "Payload": "@{string(body('Parse_Canonical_Event'))}",
+                  "CreatedAt": "@{utcNow()}",
+                  "Sent": false
+                },
+                "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items"
+              },
+              "runAfter": {
+                "Parse_Canonical_Event": [
+                  "Succeeded"
+                ]
+              },
+              "runtimeConfiguration": {
+                "retryPolicy": {
+                  "type": "none"
+                }
+              },
+              "description": "Non-idempotent insert - RETRY DISABLED, outbox-processor will handle delivery (Best Practice #9)"
+            },
+            "Log_Message_Queued": {
+              "type": "Compose",
+              "inputs": {
+                "correlationId": "@variables('CorrelationId')",
+                "messageId": "@body('Compute_Message_ID')?['messageId']",
+                "eventType": "@body('Parse_Canonical_Event')?['eventType']",
+                "event": "MessageQueued",
+                "timestamp": "@utcNow()"
+              },
+              "runAfter": {
+                "Insert_Into_Outbox": [
+                  "Succeeded"
+                ]
+              },
+              "description": "Log to Application Insights - Best Practice #7"
+            },
+            "Return_Accepted_Response": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 202,
+                "headers": {
+                  "x-correlation-id": "@variables('CorrelationId')",
+                  "Location": "@{concat(workflow()['run']['name'], '/status/', body('Compute_Message_ID')?['messageId'])}"
+                },
+                "body": {
+                  "status": "Accepted",
+                  "messageId": "@{body('Compute_Message_ID')?['messageId']}",
+                  "correlationId": "@variables('CorrelationId')",
+                  "statusUrl": "@{concat('/api/message-status/', body('Compute_Message_ID')?['messageId'])}"
+                }
+              },
+              "runAfter": {
+                "Log_Message_Queued": [
+                  "Succeeded"
+                ]
+              },
+              "description": "Return 202 Accepted with status URL - Best Practice #5"
+            }
+          }
+        }
+      },
+      "Handle_Error": {
+        "type": "Scope",
+        "actions": {
+          "Log_Error": {
+            "type": "Compose",
+            "inputs": {
+              "correlationId": "@variables('CorrelationId')",
+              "messageId": "@body('Compute_Message_ID')?['messageId']",
+              "event": "ProcessingError",
+              "error": "@result('Is_Duplicate')",
+              "timestamp": "@utcNow()"
+            },
+            "runAfter": {},
+            "description": "Log error to Application Insights - Best Practice #7"
+          },
+          "Return_Error_Response": {
+            "type": "Response",
+            "kind": "Http",
+            "inputs": {
+              "statusCode": 500,
+              "headers": {
+                "x-correlation-id": "@variables('CorrelationId')"
+              },
+              "body": {
+                "status": "Error",
+                "correlationId": "@variables('CorrelationId')",
+                "error": {
+                  "code": "ProcessingFailed",
+                  "message": "Message processing failed - check logs",
+                  "details": "@result('Is_Duplicate')"
+                }
+              }
+            },
+            "runAfter": {
+              "Log_Error": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "runAfter": {
+          "Is_Duplicate": [
+            "Failed",
+            "TimedOut",
+            "Skipped"
+          ]
+        },
+        "description": "Error handling scope - Best Practice #6"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "triggers": {
+      "When_HTTP_Request_Received": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          },
+          "method": "POST"
+        },
+        "description": "Accept POST requests - Stateless execution (Best Practice #2)"
+      }
+    }
+  },
+  "kind": "Stateful"
+}

@@ -1,0 +1,298 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Initialize_Correlation_ID": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "CorrelationId",
+              "type": "string",
+              "value": "@{coalesce(triggerOutputs()?['headers']?['x-correlation-id'], guid())}"
+            }
+          ]
+        },
+        "runAfter": {},
+        "description": "Extract or generate correlation ID - Best Practice #8"
+      },
+      "Extract_Message_ID": {
+        "type": "Compose",
+        "inputs": "@triggerOutputs()?['queries']?['messageId']",
+        "runAfter": {
+          "Initialize_Correlation_ID": [
+            "Succeeded"
+          ]
+        },
+        "description": "Get MessageId from query parameter"
+      },
+      "Validate_Message_ID": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "not": {
+                "equals": [
+                  "@outputs('Extract_Message_ID')",
+                  "@null"
+                ]
+              }
+            },
+            {
+              "not": {
+                "equals": [
+                  "@outputs('Extract_Message_ID')",
+                  ""
+                ]
+              }
+            }
+          ]
+        },
+        "actions": {
+          "Query_Inbox": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "sql"
+                }
+              },
+              "method": "get",
+              "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Inbox]'))}/items",
+              "queries": {
+                "$filter": "MessageId eq '@{outputs('Extract_Message_ID')}'",
+                "$top": 1
+              }
+            },
+            "runAfter": {},
+            "runtimeConfiguration": {
+              "retryPolicy": {
+                "type": "exponential",
+                "count": 3,
+                "interval": "PT5S"
+              }
+            },
+            "description": "Idempotent read - RETRY ENABLED (Best Practice #9)"
+          },
+          "Query_Outbox": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "referenceName": "sql"
+                }
+              },
+              "method": "get",
+              "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items",
+              "queries": {
+                "$filter": "MessageId eq '@{outputs('Extract_Message_ID')}'",
+                "$top": 1
+              }
+            },
+            "runAfter": {
+              "Query_Inbox": [
+                "Succeeded"
+              ]
+            },
+            "runtimeConfiguration": {
+              "retryPolicy": {
+                "type": "exponential",
+                "count": 3,
+                "interval": "PT5S"
+              }
+            },
+            "description": "Idempotent read - RETRY ENABLED (Best Practice #9)"
+          },
+          "Determine_Status": {
+            "type": "Compose",
+            "inputs": {
+              "messageId": "@outputs('Extract_Message_ID')",
+              "correlationId": "@variables('CorrelationId')",
+              "inboxFound": "@greater(length(body('Query_Inbox')?['value']), 0)",
+              "outboxFound": "@greater(length(body('Query_Outbox')?['value']), 0)",
+              "sent": "@if(greater(length(body('Query_Outbox')?['value']), 0), body('Query_Outbox')?['value']?[0]?['Sent'], false)",
+              "receivedAt": "@if(greater(length(body('Query_Inbox')?['value']), 0), body('Query_Inbox')?['value']?[0]?['ReceivedAt'], null)",
+              "sentAt": "@if(greater(length(body('Query_Outbox')?['value']), 0), body('Query_Outbox')?['value']?[0]?['SentAt'], null)",
+              "retryCount": "@if(greater(length(body('Query_Outbox')?['value']), 0), body('Query_Outbox')?['value']?[0]?['RetryCount'], 0)",
+              "error": "@if(greater(length(body('Query_Outbox')?['value']), 0), body('Query_Outbox')?['value']?[0]?['Error'], null)"
+            },
+            "runAfter": {
+              "Query_Outbox": [
+                "Succeeded"
+              ]
+            }
+          },
+          "Map_To_Status": {
+            "type": "Switch",
+            "expression": "@concat(string(outputs('Determine_Status')?['inboxFound']), '-', string(outputs('Determine_Status')?['outboxFound']), '-', string(outputs('Determine_Status')?['sent']))",
+            "cases": {
+              "NotFound": {
+                "case": "false-false-false",
+                "actions": {
+                  "Return_Not_Found": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "inputs": {
+                      "statusCode": 404,
+                      "headers": {
+                        "x-correlation-id": "@variables('CorrelationId')"
+                      },
+                      "body": {
+                        "status": "NotFound",
+                        "messageId": "@outputs('Extract_Message_ID')",
+                        "correlationId": "@variables('CorrelationId')",
+                        "message": "Message not found in system"
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                }
+              },
+              "Received": {
+                "case": "true-false-false",
+                "actions": {
+                  "Return_Received": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "inputs": {
+                      "statusCode": 200,
+                      "headers": {
+                        "x-correlation-id": "@variables('CorrelationId')"
+                      },
+                      "body": {
+                        "status": "Received",
+                        "messageId": "@outputs('Extract_Message_ID')",
+                        "correlationId": "@variables('CorrelationId')",
+                        "receivedAt": "@outputs('Determine_Status')?['receivedAt']",
+                        "message": "Message received and queued for processing"
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                }
+              },
+              "Processing": {
+                "case": "true-true-false",
+                "actions": {
+                  "Return_Processing": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "inputs": {
+                      "statusCode": 200,
+                      "headers": {
+                        "x-correlation-id": "@variables('CorrelationId')"
+                      },
+                      "body": {
+                        "status": "Processing",
+                        "messageId": "@outputs('Extract_Message_ID')",
+                        "correlationId": "@variables('CorrelationId')",
+                        "receivedAt": "@outputs('Determine_Status')?['receivedAt']",
+                        "retryCount": "@outputs('Determine_Status')?['retryCount']",
+                        "error": "@outputs('Determine_Status')?['error']",
+                        "message": "Message is being processed and will be delivered"
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                }
+              },
+              "Sent": {
+                "case": "true-true-true",
+                "actions": {
+                  "Return_Sent": {
+                    "type": "Response",
+                    "kind": "Http",
+                    "inputs": {
+                      "statusCode": 200,
+                      "headers": {
+                        "x-correlation-id": "@variables('CorrelationId')"
+                      },
+                      "body": {
+                        "status": "Sent",
+                        "messageId": "@outputs('Extract_Message_ID')",
+                        "correlationId": "@variables('CorrelationId')",
+                        "receivedAt": "@outputs('Determine_Status')?['receivedAt']",
+                        "sentAt": "@outputs('Determine_Status')?['sentAt']",
+                        "message": "Message successfully delivered"
+                      }
+                    },
+                    "runAfter": {}
+                  }
+                }
+              }
+            },
+            "default": {
+              "actions": {
+                "Return_Unknown": {
+                  "type": "Response",
+                  "kind": "Http",
+                  "inputs": {
+                    "statusCode": 200,
+                    "headers": {
+                      "x-correlation-id": "@variables('CorrelationId')"
+                    },
+                    "body": {
+                      "status": "Unknown",
+                      "messageId": "@outputs('Extract_Message_ID')",
+                      "correlationId": "@variables('CorrelationId')",
+                      "details": "@outputs('Determine_Status')"
+                    }
+                  },
+                  "runAfter": {}
+                }
+              }
+            },
+            "runAfter": {
+              "Determine_Status": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "runAfter": {
+          "Extract_Message_ID": [
+            "Succeeded"
+          ]
+        },
+        "else": {
+          "actions": {
+            "Return_Bad_Request": {
+              "type": "Response",
+              "kind": "Http",
+              "inputs": {
+                "statusCode": 400,
+                "headers": {
+                  "x-correlation-id": "@variables('CorrelationId')"
+                },
+                "body": {
+                  "status": "BadRequest",
+                  "correlationId": "@variables('CorrelationId')",
+                  "error": {
+                    "code": "MissingParameter",
+                    "message": "messageId query parameter is required"
+                  }
+                }
+              },
+              "runAfter": {}
+            }
+          }
+        },
+        "description": "Validate messageId parameter exists"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "triggers": {
+      "When_HTTP_GET_Request_Received": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "method": "GET",
+          "schema": {}
+        },
+        "description": "GET /api/message-status?messageId={id} - Best Practice #5 (202 Accepted pattern)"
+      }
+    }
+  },
+  "kind": "Stateful"
+}

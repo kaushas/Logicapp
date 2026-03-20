@@ -1,0 +1,28 @@
+{
+  "managedApiConnections": {
+    "sql": {
+      "api": {
+        "id": "/subscriptions/{subscription-id}/providers/Microsoft.Web/locations/{location}/managedApis/sql"
+      },
+      "connection": {
+        "id": "/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.Web/connections/sql"
+      },
+      "connectionRuntimeUrl": "https://logic-apis-{location}.azure-apim.net/apim/sql/{connection-id}",
+      "authentication": {
+        "type": "ManagedServiceIdentity"
+      }
+    },
+    "servicebus": {
+      "api": {
+        "id": "/subscriptions/{subscription-id}/providers/Microsoft.Web/locations/{location}/managedApis/servicebus"
+      },
+      "connection": {
+        "id": "/subscriptions/{subscription-id}/resourceGroups/{resource-group}/providers/Microsoft.Web/connections/servicebus"
+      },
+      "connectionRuntimeUrl": "https://logic-apis-{location}.azure-apim.net/apim/servicebus/{connection-id}",
+      "authentication": {
+        "type": "ManagedServiceIdentity"
+      }
+    }
+  }
+}

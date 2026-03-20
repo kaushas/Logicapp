@@ -1,0 +1,295 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Initialize_Correlation_ID": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "CorrelationId",
+              "type": "string",
+              "value": "@{coalesce(triggerBody()?['correlationId'], guid())}"
+            }
+          ]
+        },
+        "runAfter": {},
+        "description": "Extract or generate correlation ID - Best Practice #8"
+      },
+      "Log_Error_Handler_Triggered": {
+        "type": "Compose",
+        "inputs": {
+          "event": "ErrorHandlerTriggered",
+          "correlationId": "@variables('CorrelationId')",
+          "messageId": "@triggerBody()?['messageId']",
+          "timestamp": "@utcNow()",
+          "workflow": "error-handler"
+        },
+        "runAfter": {
+          "Initialize_Correlation_ID": [
+            "Succeeded"
+          ]
+        },
+        "description": "Log to Application Insights - Best Practice #7"
+      },
+      "Query_Failed_Outbox_Messages": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "sql"
+            }
+          },
+          "method": "get",
+          "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items",
+          "queries": {
+            "$filter": "Sent eq false and RetryCount ge 5",
+            "$orderby": "CreatedAt desc",
+            "$top": 10
+          }
+        },
+        "runAfter": {
+          "Log_Error_Handler_Triggered": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "retryPolicy": {
+            "type": "exponential",
+            "count": 3,
+            "interval": "PT5S"
+          }
+        },
+        "description": "Get messages that exceeded retry count - Best Practice #9"
+      },
+      "For_Each_Failed_Message": {
+        "type": "Foreach",
+        "foreach": "@body('Query_Failed_Outbox_Messages')?['value']",
+        "actions": {
+          "Parse_Failed_Message": {
+            "type": "Compose",
+            "inputs": {
+              "Id": "@items('For_Each_Failed_Message')?['Id']",
+              "MessageId": "@items('For_Each_Failed_Message')?['MessageId']",
+              "Destination": "@items('For_Each_Failed_Message')?['Destination']",
+              "Payload": "@json(items('For_Each_Failed_Message')?['Payload'])",
+              "RetryCount": "@items('For_Each_Failed_Message')?['RetryCount']",
+              "Error": "@items('For_Each_Failed_Message')?['Error']",
+              "CreatedAt": "@items('For_Each_Failed_Message')?['CreatedAt']"
+            },
+            "runAfter": {}
+          },
+          "Log_Failed_Message_Details": {
+            "type": "Compose",
+            "inputs": {
+              "event": "PermanentFailureDetected",
+              "correlationId": "@outputs('Parse_Failed_Message')?['Payload']?['correlationId']",
+              "messageId": "@outputs('Parse_Failed_Message')?['MessageId']",
+              "destination": "@outputs('Parse_Failed_Message')?['Destination']",
+              "retryCount": "@outputs('Parse_Failed_Message')?['RetryCount']",
+              "lastError": "@outputs('Parse_Failed_Message')?['Error']",
+              "createdAt": "@outputs('Parse_Failed_Message')?['CreatedAt']",
+              "failedAt": "@utcNow()",
+              "severity": "Critical",
+              "timestamp": "@utcNow()"
+            },
+            "runAfter": {
+              "Parse_Failed_Message": [
+                "Succeeded"
+              ]
+            },
+            "description": "Log critical failure to Application Insights - Best Practice #7"
+          },
+          "Determine_Compensating_Action": {
+            "type": "Switch",
+            "expression": "@outputs('Parse_Failed_Message')?['Destination']",
+            "cases": {
+              "ServiceBusCanonical": {
+                "case": "ServiceBusCanonical",
+                "actions": {
+                  "Move_To_Dead_Letter_Queue": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": {
+                        "connection": {
+                          "referenceName": "servicebus"
+                        }
+                      },
+                      "method": "post",
+                      "body": {
+                        "ContentData": "@{base64(string(outputs('Parse_Failed_Message')?['Payload']))}",
+                        "ContentType": "application/json",
+                        "Properties": {
+                          "MessageId": "@{outputs('Parse_Failed_Message')?['MessageId']}",
+                          "CorrelationId": "@{outputs('Parse_Failed_Message')?['Payload']?['correlationId']}",
+                          "DeadLetterReason": "MaxRetriesExceeded",
+                          "DeadLetterDescription": "@{outputs('Parse_Failed_Message')?['Error']}",
+                          "RetryCount": "@{outputs('Parse_Failed_Message')?['RetryCount']}"
+                        }
+                      },
+                      "path": "/@{encodeURIComponent(encodeURIComponent('dead-letter-events'))}/messages"
+                    },
+                    "runAfter": {},
+                    "runtimeConfiguration": {
+                      "retryPolicy": {
+                        "type": "none"
+                      }
+                    },
+                    "description": "Move to DLQ - RETRY DISABLED"
+                  },
+                  "Mark_As_Dead_Lettered": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": {
+                        "connection": {
+                          "referenceName": "sql"
+                        }
+                      },
+                      "method": "patch",
+                      "body": {
+                        "Sent": true,
+                        "SentAt": "@{utcNow()}",
+                        "Error": "@{concat('Dead-lettered: ', outputs('Parse_Failed_Message')?['Error'])}"
+                      },
+                      "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items/@{encodeURIComponent(encodeURIComponent(outputs('Parse_Failed_Message')?['Id']))}"
+                    },
+                    "runAfter": {
+                      "Move_To_Dead_Letter_Queue": [
+                        "Succeeded"
+                      ]
+                    },
+                    "runtimeConfiguration": {
+                      "retryPolicy": {
+                        "type": "none"
+                      }
+                    },
+                    "description": "Update outbox record - RETRY DISABLED"
+                  }
+                }
+              },
+              "ManhattanPublisher": {
+                "case": "ManhattanPublisher",
+                "actions": {
+                  "Send_Alert_To_Operations": {
+                    "type": "Compose",
+                    "inputs": {
+                      "alertType": "MessageDeliveryFailure",
+                      "severity": "Critical",
+                      "messageId": "@outputs('Parse_Failed_Message')?['MessageId']",
+                      "destination": "Manhattan Publisher",
+                      "retryCount": "@outputs('Parse_Failed_Message')?['RetryCount']",
+                      "error": "@outputs('Parse_Failed_Message')?['Error']",
+                      "action": "Manual intervention required",
+                      "timestamp": "@utcNow()"
+                    },
+                    "runAfter": {},
+                    "description": "Alert to Application Insights for operations team - Best Practice #7"
+                  },
+                  "Mark_As_Requires_Manual_Intervention": {
+                    "type": "ApiConnection",
+                    "inputs": {
+                      "host": {
+                        "connection": {
+                          "referenceName": "sql"
+                        }
+                      },
+                      "method": "patch",
+                      "body": {
+                        "Error": "@{concat('Manual intervention required: ', outputs('Parse_Failed_Message')?['Error'])}"
+                      },
+                      "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items/@{encodeURIComponent(encodeURIComponent(outputs('Parse_Failed_Message')?['Id']))}"
+                    },
+                    "runAfter": {
+                      "Send_Alert_To_Operations": [
+                        "Succeeded"
+                      ]
+                    },
+                    "runtimeConfiguration": {
+                      "retryPolicy": {
+                        "type": "none"
+                      }
+                    },
+                    "description": "Flag for manual processing - RETRY DISABLED"
+                  }
+                }
+              }
+            },
+            "default": {
+              "actions": {
+                "Log_Unknown_Destination_Error": {
+                  "type": "Compose",
+                  "inputs": {
+                    "event": "UnknownDestinationError",
+                    "messageId": "@outputs('Parse_Failed_Message')?['MessageId']",
+                    "destination": "@outputs('Parse_Failed_Message')?['Destination']",
+                    "severity": "Critical",
+                    "timestamp": "@utcNow()"
+                  },
+                  "runAfter": {}
+                }
+              }
+            },
+            "runAfter": {
+              "Log_Failed_Message_Details": [
+                "Succeeded"
+              ]
+            },
+            "description": "Route to compensating action based on destination - Best Practice #6"
+          }
+        },
+        "runAfter": {
+          "Query_Failed_Outbox_Messages": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "repetitions": 1
+          }
+        },
+        "description": "Process each failed message sequentially"
+      },
+      "Return_Summary": {
+        "type": "Compose",
+        "inputs": {
+          "status": "Completed",
+          "processedCount": "@length(body('Query_Failed_Outbox_Messages')?['value'])",
+          "correlationId": "@variables('CorrelationId')",
+          "timestamp": "@utcNow()"
+        },
+        "runAfter": {
+          "For_Each_Failed_Message": [
+            "Succeeded",
+            "Failed",
+            "Skipped"
+          ]
+        },
+        "description": "Summary of error handling execution"
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "triggers": {
+      "Manual_Or_Event_Grid_Trigger": {
+        "type": "Request",
+        "kind": "Http",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "messageId": {
+                "type": "string"
+              },
+              "correlationId": {
+                "type": "string"
+              }
+            }
+          },
+          "method": "POST"
+        },
+        "description": "Manual trigger or Event Grid for failed messages - Best Practice #6 (Compensating transactions)"
+      }
+    }
+  },
+  "kind": "Stateful"
+}

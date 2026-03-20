@@ -1,0 +1,429 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "actions": {
+      "Log_Processor_Started": {
+        "type": "Compose",
+        "inputs": {
+          "event": "OutboxProcessorStarted",
+          "timestamp": "@utcNow()",
+          "workflow": "outbox-processor"
+        },
+        "runAfter": {},
+        "description": "Log to Application Insights - Best Practice #7"
+      },
+      "Get_Pending_Outbox_Messages": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "sql"
+            }
+          },
+          "method": "post",
+          "body": {
+            "BatchSize": 10
+          },
+          "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/procedures/@{encodeURIComponent(encodeURIComponent('[dbo].[sp_GetPendingOutboxMessages]'))}"
+        },
+        "runAfter": {
+          "Log_Processor_Started": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "retryPolicy": {
+            "type": "exponential",
+            "count": 3,
+            "interval": "PT5S"
+          }
+        },
+        "description": "Idempotent read - RETRY ENABLED (Best Practice #9)"
+      },
+      "For_Each_Pending_Message": {
+        "type": "Foreach",
+        "foreach": "@body('Get_Pending_Outbox_Messages')?['resultSets']?['Table1']",
+        "actions": {
+          "Parse_Outbox_Record": {
+            "type": "Compose",
+            "inputs": {
+              "Id": "@items('For_Each_Pending_Message')?['Id']",
+              "MessageId": "@items('For_Each_Pending_Message')?['MessageId']",
+              "Destination": "@items('For_Each_Pending_Message')?['Destination']",
+              "Payload": "@json(items('For_Each_Pending_Message')?['Payload'])",
+              "RetryCount": "@items('For_Each_Pending_Message')?['RetryCount']"
+            },
+            "runAfter": {}
+          },
+          "Route_By_Destination": {
+            "type": "Switch",
+            "expression": "@outputs('Parse_Outbox_Record')?['Destination']",
+            "cases": {
+              "ServiceBusCanonical": {
+                "case": "ServiceBusCanonical",
+                "actions": {
+                  "Try_Send_To_Service_Bus": {
+                    "type": "Scope",
+                    "actions": {
+                      "Send_To_Canonical_Topic": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connection": {
+                              "referenceName": "servicebus"
+                            }
+                          },
+                          "method": "post",
+                          "body": {
+                            "ContentData": "@{base64(string(outputs('Parse_Outbox_Record')?['Payload']))}",
+                            "ContentType": "application/json",
+                            "Properties": {
+                              "MessageId": "@{outputs('Parse_Outbox_Record')?['MessageId']}",
+                              "CorrelationId": "@{outputs('Parse_Outbox_Record')?['Payload']?['correlationId']}",
+                              "EventType": "@{outputs('Parse_Outbox_Record')?['Payload']?['eventType']}",
+                              "RetryAttempt": "@{outputs('Parse_Outbox_Record')?['RetryCount']}"
+                            }
+                          },
+                          "path": "/@{encodeURIComponent(encodeURIComponent('canonical-events'))}/messages"
+                        },
+                        "runAfter": {},
+                        "runtimeConfiguration": {
+                          "retryPolicy": {
+                            "type": "exponential",
+                            "count": 4,
+                            "interval": "PT10S",
+                            "maximumInterval": "PT1H",
+                            "minimumInterval": "PT5S"
+                          },
+                          "staticResult": {
+                            "name": "Send_To_Canonical_Topic_Terminal_Error_Detection",
+                            "staticResultOptions": "Disabled"
+                          }
+                        },
+                        "description": "RETRY ENABLED with exponential backoff - Best Practice #9"
+                      },
+                      "Log_Message_Sent": {
+                        "type": "Compose",
+                        "inputs": {
+                          "event": "MessageSent",
+                          "messageId": "@outputs('Parse_Outbox_Record')?['MessageId']",
+                          "correlationId": "@outputs('Parse_Outbox_Record')?['Payload']?['correlationId']",
+                          "destination": "ServiceBus",
+                          "retryAttempt": "@outputs('Parse_Outbox_Record')?['RetryCount']",
+                          "timestamp": "@utcNow()"
+                        },
+                        "runAfter": {
+                          "Send_To_Canonical_Topic": [
+                            "Succeeded"
+                          ]
+                        },
+                        "description": "Log to Application Insights - Best Practice #7"
+                      },
+                      "Mark_As_Sent": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connection": {
+                              "referenceName": "sql"
+                            }
+                          },
+                          "method": "patch",
+                          "body": {
+                            "Sent": true,
+                            "SentAt": "@{utcNow()}"
+                          },
+                          "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items/@{encodeURIComponent(encodeURIComponent(outputs('Parse_Outbox_Record')?['Id']))}"
+                        },
+                        "runAfter": {
+                          "Log_Message_Sent": [
+                            "Succeeded"
+                          ]
+                        },
+                        "runtimeConfiguration": {
+                          "retryPolicy": {
+                            "type": "none"
+                          }
+                        },
+                        "description": "Idempotent update - RETRY DISABLED (Best Practice #9)"
+                      }
+                    },
+                    "runAfter": {}
+                  },
+                  "Handle_Send_Failure": {
+                    "type": "Scope",
+                    "actions": {
+                      "Log_Send_Failure": {
+                        "type": "Compose",
+                        "inputs": {
+                          "event": "MessageSendFailed",
+                          "messageId": "@outputs('Parse_Outbox_Record')?['MessageId']",
+                          "correlationId": "@outputs('Parse_Outbox_Record')?['Payload']?['correlationId']",
+                          "error": "@result('Try_Send_To_Service_Bus')",
+                          "retryAttempt": "@outputs('Parse_Outbox_Record')?['RetryCount']",
+                          "timestamp": "@utcNow()"
+                        },
+                        "runAfter": {},
+                        "description": "Log error to Application Insights - Best Practice #7"
+                      },
+                      "Update_Retry_Info": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connection": {
+                              "referenceName": "sql"
+                            }
+                          },
+                          "method": "post",
+                          "body": {
+                            "Id": "@outputs('Parse_Outbox_Record')?['Id']",
+                            "Error": "@{string(result('Try_Send_To_Service_Bus'))}"
+                          },
+                          "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/procedures/@{encodeURIComponent(encodeURIComponent('[dbo].[sp_UpdateOutboxRetry]'))}"
+                        },
+                        "runAfter": {
+                          "Log_Send_Failure": [
+                            "Succeeded"
+                          ]
+                        },
+                        "runtimeConfiguration": {
+                          "retryPolicy": {
+                            "type": "none"
+                          }
+                        },
+                        "description": "Update retry metadata - RETRY DISABLED (Best Practice #9)"
+                      }
+                    },
+                    "runAfter": {
+                      "Try_Send_To_Service_Bus": [
+                        "Failed",
+                        "TimedOut"
+                      ]
+                    }
+                  }
+                }
+              },
+              "ManhattanPublisher": {
+                "case": "ManhattanPublisher",
+                "actions": {
+                  "Try_Send_To_Manhattan": {
+                    "type": "Scope",
+                    "actions": {
+                      "Get_JWT_Token": {
+                        "type": "Http",
+                        "inputs": {
+                          "method": "GET",
+                          "uri": "@parameters('JWT_STUB_URL')"
+                        },
+                        "runAfter": {},
+                        "runtimeConfiguration": {
+                          "retryPolicy": {
+                            "type": "exponential",
+                            "count": 3,
+                            "interval": "PT5S"
+                          }
+                        },
+                        "description": "Get JWT token - RETRY ENABLED (Best Practice #9)"
+                      },
+                      "Parse_JWT_Response": {
+                        "type": "ParseJson",
+                        "inputs": {
+                          "content": "@body('Get_JWT_Token')",
+                          "schema": {
+                            "type": "object",
+                            "properties": {
+                              "token": {
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "runAfter": {
+                          "Get_JWT_Token": [
+                            "Succeeded"
+                          ]
+                        }
+                      },
+                      "Send_To_Manhattan_Pub_Sub": {
+                        "type": "Http",
+                        "inputs": {
+                          "method": "POST",
+                          "uri": "@parameters('MANHATTAN_PUBLISH_URL')",
+                          "headers": {
+                            "Authorization": "Bearer @{body('Parse_JWT_Response')?['token']}",
+                            "Content-Type": "application/json"
+                          },
+                          "body": {
+                            "messages": [
+                              {
+                                "data": "@{base64(string(outputs('Parse_Outbox_Record')?['Payload']))}"
+                              }
+                            ]
+                          }
+                        },
+                        "runAfter": {
+                          "Parse_JWT_Response": [
+                            "Succeeded"
+                          ]
+                        },
+                        "runtimeConfiguration": {
+                          "retryPolicy": {
+                            "type": "exponential",
+                            "count": 4,
+                            "interval": "PT10S",
+                            "maximumInterval": "PT1H"
+                          }
+                        },
+                        "description": "Publish to Manhattan - RETRY ENABLED, stop on 4xx (Best Practice #9)"
+                      },
+                      "Log_Manhattan_Sent": {
+                        "type": "Compose",
+                        "inputs": {
+                          "event": "ManhattanMessageSent",
+                          "messageId": "@outputs('Parse_Outbox_Record')?['MessageId']",
+                          "timestamp": "@utcNow()"
+                        },
+                        "runAfter": {
+                          "Send_To_Manhattan_Pub_Sub": [
+                            "Succeeded"
+                          ]
+                        },
+                        "description": "Log to Application Insights - Best Practice #7"
+                      },
+                      "Mark_Manhattan_As_Sent": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connection": {
+                              "referenceName": "sql"
+                            }
+                          },
+                          "method": "patch",
+                          "body": {
+                            "Sent": true,
+                            "SentAt": "@{utcNow()}"
+                          },
+                          "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items/@{encodeURIComponent(encodeURIComponent(outputs('Parse_Outbox_Record')?['Id']))}"
+                        },
+                        "runAfter": {
+                          "Log_Manhattan_Sent": [
+                            "Succeeded"
+                          ]
+                        },
+                        "runtimeConfiguration": {
+                          "retryPolicy": {
+                            "type": "none"
+                          }
+                        },
+                        "description": "Idempotent update - RETRY DISABLED (Best Practice #9)"
+                      }
+                    },
+                    "runAfter": {}
+                  },
+                  "Handle_Manhattan_Failure": {
+                    "type": "Scope",
+                    "actions": {
+                      "Log_Manhattan_Failure": {
+                        "type": "Compose",
+                        "inputs": {
+                          "event": "ManhattanSendFailed",
+                          "messageId": "@outputs('Parse_Outbox_Record')?['MessageId']",
+                          "error": "@result('Try_Send_To_Manhattan')",
+                          "timestamp": "@utcNow()"
+                        },
+                        "runAfter": {},
+                        "description": "Log error to Application Insights - Best Practice #7"
+                      },
+                      "Update_Manhattan_Retry": {
+                        "type": "ApiConnection",
+                        "inputs": {
+                          "host": {
+                            "connection": {
+                              "referenceName": "sql"
+                            }
+                          },
+                          "method": "post",
+                          "body": {
+                            "Id": "@outputs('Parse_Outbox_Record')?['Id']",
+                            "Error": "@{string(result('Try_Send_To_Manhattan'))}"
+                          },
+                          "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/procedures/@{encodeURIComponent(encodeURIComponent('[dbo].[sp_UpdateOutboxRetry]'))}"
+                        },
+                        "runAfter": {
+                          "Log_Manhattan_Failure": [
+                            "Succeeded"
+                          ]
+                        },
+                        "runtimeConfiguration": {
+                          "retryPolicy": {
+                            "type": "none"
+                          }
+                        },
+                        "description": "Update retry metadata - RETRY DISABLED (Best Practice #9)"
+                      }
+                    },
+                    "runAfter": {
+                      "Try_Send_To_Manhattan": [
+                        "Failed",
+                        "TimedOut"
+                      ]
+                    }
+                  }
+                }
+              }
+            },
+            "default": {
+              "actions": {
+                "Log_Unknown_Destination": {
+                  "type": "Compose",
+                  "inputs": {
+                    "message": "Unknown destination",
+                    "destination": "@outputs('Parse_Outbox_Record')?['Destination']",
+                    "messageId": "@outputs('Parse_Outbox_Record')?['MessageId']"
+                  },
+                  "runAfter": {}
+                }
+              }
+            },
+            "runAfter": {
+              "Parse_Outbox_Record": [
+                "Succeeded"
+              ]
+            }
+          }
+        },
+        "runAfter": {
+          "Get_Pending_Outbox_Messages": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "concurrency": {
+            "repetitions": 5
+          }
+        }
+      }
+    },
+    "contentVersion": "1.0.0.0",
+    "outputs": {},
+    "parameters": {
+      "JWT_STUB_URL": {
+        "type": "String",
+        "defaultValue": "http://localhost:7073/api/generate-token"
+      },
+      "MANHATTAN_PUBLISH_URL": {
+        "type": "String",
+        "defaultValue": "https://pubsub.googleapis.com/v1/projects/batf-masc-prod-01-ops/topics/HST_XNT_Facility_GCPQ:publish"
+      }
+    },
+    "triggers": {
+      "Recurrence_Every_Minute": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 1
+        }
+      }
+    }
+  },
+  "kind": "Stateful"
+}

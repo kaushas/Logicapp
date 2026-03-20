@@ -1,0 +1,10 @@
+{
+  "JWT_STUB_URL": {
+    "type": "String",
+    "value": "https://your-jwt-service.azurewebsites.net/api/generate-token"
+  },
+  "MANHATTAN_PUBLISH_URL": {
+    "type": "String",
+    "value": "https://pubsub.googleapis.com/v1/projects/batf-masc-prod-01-ops/topics/HST_XNT_Facility_GCPQ:publish"
+  }
+}

@@ -1,0 +1,2 @@
+[config]
+command = deploy-to-azure.ps1
