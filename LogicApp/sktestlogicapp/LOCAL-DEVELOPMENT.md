@@ -3,7 +3,7 @@
 ## Service Bus Configuration
 
 ### 1. Update local.settings.json
-
+This is service bus and queues in the cloud that the local logic app will connect to. The Logic App uses the `SERVICEBUS_CONNECTION_STRING` to connect to Azure Service Bus.
 The Logic App now uses **Service Bus trigger** (not HTTP) to receive messages from D365 FinOps.
 
 ```json
@@ -20,7 +20,7 @@ The Logic App now uses **Service Bus trigger** (not HTTP) to receive messages fr
 ### 2. Configure Service Bus Connection
 
 Update [connections.json](connections.json) for local development:
-
+you only have to update the `connectionRuntimeUrl` to point to the local ServiceBusProxy (if using Hybrid Mode) or directly to Azure Service Bus (if using Full Cloud Mode).
 ```json
 {
   "managedApiConnections": {
@@ -43,7 +43,7 @@ Update [connections.json](connections.json) for local development:
 ```
 
 ### 3. Create Service Bus Queue
-
+These need to be added to the parameter file for the logic app to work. You can create them in Azure Portal or using Azure CLI.
 Create a queue named `inbound-messages` in your Service Bus namespace:
 
 ```bash
@@ -63,7 +63,272 @@ Or use Azure Portal:
 
 ## Running Locally
 
-### Start the Logic App
+### Option 1: Hybrid Mode with ServiceBusProxy (Recommended for Local Development)
+
+Hybrid mode allows you to run Logic Apps locally while connecting to the cloud Azure Service Bus, using a local proxy to bridge the gap. This is ideal for development and testing.
+
+#### Prerequisites
+
+1. **Azurite** - Local Azure Storage emulator for `AzureWebJobsStorage`
+   - Install: `npm install -g azurite`
+   - Alternatively, VS Code extension: "Azurite"
+
+2. **Service Bus Proxy Function** - Local HTTP proxy that bridges Service Bus API
+   - Located in: `src/ServiceBusProxy/`
+   - Runs on port 7075
+
+3. **Azure Functions Core Tools** - Already required for Logic Apps
+
+4. **Cloud Azure Service Bus Namespace** - Connection to real Service Bus in Azure (for testing with real messages)
+
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ LOCAL DEVELOPMENT (Hybrid Mode)                                 │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Logic App (Port 7071)                                          │
+│  ├─ connections.json: connectionRuntimeUrl =                    │
+│  │  "http://localhost:7075/api/servicebus"                      │
+│  └─ Triggers: Service Bus connector                             │
+│       │                                                           │
+│       └─→ HTTP PUT/GET http://localhost:7075/api/servicebus     │
+│                                                                   │
+│  ServiceBusProxy Function (Port 7075)                           │
+│  ├─ Receives HTTP requests from Logic App                       │
+│  ├─ Translates to Service Bus REST API calls                    │
+│  └─ Forwards to Azure Service Bus (Cloud)                       │
+│       │                                                           │
+│       └─→ HTTPS: sb://YOUR-NAMESPACE.servicebus.windows.net     │
+│                                                                   │
+│  Azure Service Bus (Cloud)                                      │
+│  └─ Real queue: inbound-messages                                │
+│                                                                   │
+│  Azurite (Port 10000-10002)                                     │
+│  └─ Local storage emulation (AzureWebJobsStorage)               │
+│                                                                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Step 1: Start Azurite
+
+Azurite emulates Azure Storage locally, required for Logic Apps runtime.
+
+```powershell
+# Option A: Command line
+azurite
+
+# Option B: VS Code Extension
+# Install "Azurite" extension and click "Start"
+
+# Option C: Via npm
+npx azurite
+```
+
+**Expected Output:**
+```
+Azurite Table service is listening at http://127.0.0.1:10002
+Azurite Queue service is listening at http://127.0.0.1:10001
+Azurite Blob service is listening at http://127.0.0.1:10000
+```
+
+#### Step 2: Start ServiceBusProxy Function (Port 7075)
+
+The ServiceBusProxy acts as a bridge between your local Logic App and Azure Service Bus.
+
+```powershell
+# Navigate to ServiceBusProxy folder
+cd src\ServiceBusProxy
+
+# Build if needed
+dotnet build
+
+# Start function on port 7075
+func host start --port 7075
+```
+
+**Expected Output to Monitor:**
+```
+Azure Functions Core Tools
+Worker process started and initialized
+Host initialized (X.XXXs)
+[7075] http://localhost:7075
+
+Functions in ServiceBusProxy:
+    ServiceBusProxyFunction: [GET,PUT] http://localhost:7075/api/servicebus/{queue}/messages/{messageId}
+    SqlProxyFunction: [GET,PUT] http://localhost:7075/api/sql/{operation}
+```
+
+**Output Indicators of Correct Operation:**
+- ✅ Listening on `http://localhost:7075`
+- ✅ `ServiceBusProxyFunction` endpoint registered
+- ✅ `Host initialized` message (no errors)
+- ✅ When logic app triggers, you'll see: `Executing 'ServiceBusProxyFunction'...`
+- ✅ Watch for HTTP requests: `[7075] HTTP GET http://localhost:7075/api/servicebus/{queueName}/messages/head`
+- ✅ Each successful proxy call logs: `ServiceBusProxyFunction (Executed, Succeeded, X milliseconds)`
+- ⚠️ If you see connection errors, verify `SERVICEBUS_CONNECTION_STRING` in `src/ServiceBusProxy/local.settings.json`
+
+#### Step 3: Start Logic App (Port 7071)
+
+In a new terminal:
+
+```powershell
+# Navigate to Logic App folder
+cd LogicApp\sktestlogicapp
+
+# Start Logic App
+func host start --port 7071
+```
+
+**Expected Output:**
+```
+Azure Functions Core Tools
+Worker process started and initialized
+Host initialized (X.XXXs)
+[7071] http://localhost:7071
+
+Workflows in sktestlogicapp:
+    process-message: [Service Bus Trigger] servicebus://inbound-messages
+    outbox-processor: [Recurrence Trigger] Every 1 minute
+```
+
+**Output Indicators of Correct Operation:**
+- ✅ Both workflows loaded successfully
+- ✅ Service Bus trigger shows: `servicebus://inbound-messages`
+- ✅ `Host initialized` with no errors
+- ✅ When a message arrives, you'll see: `Trigger Details: ServiceBus (inbound-messages)`
+- ✅ Watch for workflow execution: `Started execution of workflow: process-message`
+- ✅ After execution: `Execution of workflow: process-message succeeded`
+
+#### Step 4: Verify Connections
+
+Check that the Logic App is configured to use the local ServiceBusProxy:
+
+**LogicApp/sktestlogicapp/connections.json.local:**
+```json
+{
+  "managedApiConnections": {
+    "servicebus": {
+      "connectionRuntimeUrl": "http://localhost:7075/api/servicebus",
+      "authentication": {
+        "type": "Raw",
+        "scheme": "Key",
+        "parameter": "@appsetting('SERVICEBUS_CONNECTION_STRING')"
+      }
+    }
+  }
+}
+```
+
+**LogicApp/sktestlogicapp/local.settings.json:**
+```json
+{
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "SERVICEBUS_CONNECTION_STRING": "Endpoint=sb://YOUR-NAMESPACE.servicebus.windows.net/;SharedAccessKeyName=RootManageSharedAccessKey;SharedAccessKey=YOUR_KEY"
+  }
+}
+```
+
+#### Step 5: Use VS Code Compound Task (Recommended)
+
+Or start all services in one command using the provided task:
+
+```powershell
+# In VS Code Terminal, press Ctrl+Shift+P
+# Run: "Tasks: Run Task"
+# Select: "Start All Services"
+```
+
+This will start:
+- Logic App (Port 7071)
+- LogicAppProcessor (Port 7072)
+- JwtAuthStub (Port 7073)
+
+You'll need to start Azurite and ServiceBusProxy separately in different terminals.
+
+#### Monitoring Hybrid Mode Operations
+
+**Watch the ServiceBusProxy output for:**
+
+1. **Message Head Requests**
+   ```
+   [7075] GET /api/servicebus/inbound-messages/messages/head HTTP/1.1 200 - 45ms
+   Executing 'ServiceBusProxyFunction'...
+   Retrieved message from queue: inbound-messages (MessageId: abc123...)
+   Executing 'ServiceBusProxyFunction' (Executed, Succeeded, 45ms)
+   ```
+   → This indicates the proxy is successfully polling Service Bus and returning messages
+
+2. **Message Completion**
+   ```
+   [7075] PUT /api/servicebus/inbound-messages/messages/abc123 HTTP/1.1 200 - 32ms
+   Message marked as complete: abc123
+   ```
+   → This indicates the proxy successfully removed the message from the queue
+
+3. **Connection Errors** (indicates misconfiguration)
+   ```
+   Azure.Messaging.ServiceBus.ServiceBusException: 'The 'SharedAccessKeyName' part of the connection string is required.'
+   ```
+   → Fix: Update `SERVICEBUS_CONNECTION_STRING` in `src/ServiceBusProxy/local.settings.json`
+
+**Watch the Logic App output for:**
+
+1. **Trigger Execution**
+   ```
+   Trigger Details: ServiceBus (inbound-messages)
+   Started execution of workflow: process-message
+   Workflow: process-message started
+   ```
+
+2. **Workflow Actions**
+   ```
+   Action 'Compute_Message_ID' (JavaScript inline code) succeeded
+   Action 'Query_Inbox' (SQL) succeeded
+   Action 'Transform_With_Liquid' succeeded
+   Action 'Insert_Into_Outbox' (SQL) succeeded
+   ```
+
+3. **Service Bus Publishing**
+   ```
+   Action 'Try_Publish_To_Service_Bus' succeeded
+   Message published to Service Bus topic: canonical-events
+   ```
+
+4. **Completion**
+   ```
+   Execution of workflow: process-message succeeded (2345ms)
+   Response: {"status": "Processed", "messageId": "abc123..."}
+   ```
+
+#### Troubleshooting Hybrid Mode
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| ServiceBusProxy not connecting to Service Bus | `UnauthorizedException` in proxy output | Verify `SERVICEBUS_CONNECTION_STRING` in `src/ServiceBusProxy/local.settings.json` with `az servicebus namespace authorization-rule keys list` |
+| Logic App not triggering | No messages being polled, proxy shows no activity | Check `connections.json` has `connectionRuntimeUrl: "http://localhost:7075/api/servicebus"` |
+| Azurite connection issues | `Error connecting to storage` | Ensure Azurite is running on port 10000-10002 and `local.settings.json` has `"AzureWebJobsStorage": "UseDevelopmentStorage=true"` |
+| Port already in use | `Unable to bind to port 7075` | Kill process: `netstat -ano \| findstr :7075` then `taskkill /PID [PID] /F` |
+| Messages not being removed from queue | Messages keep being reprocessed | Check ServiceBusProxy output for successful `PUT` requests for message completion |
+
+#### Key Differences: Hybrid Mode vs. Azure Deployment
+
+| Aspect | Hybrid Mode | Azure |
+|--------|------------|-------|
+| Logic App location | Local (`localhost:7071`) | Azure (`https://logic-app.azurewebsites.net`) |
+| Service Bus proxy | Local ServiceBusProxy (`localhost:7075`) | Direct cloud connection |
+| Storage | Azurite emulator | Azure Storage Account |
+| Connection setup | `connections.json.local` | `connections.json` (Azure) |
+| Connection URL | `http://localhost:7075/api/servicebus` | `https://sktestsb.servicebus.windows.net` |
+| Best for | Development, testing, debugging | Production deployment |
+
+### Option 2: Full Cloud Mode (No Local Services)
+
+If you prefer not to run ServiceBusProxy locally, skip ServiceBusProxy and run Logic App directly against Azure Service Bus. However, this approach has limitations with Service Bus triggers in local development.
+
+### Start the Logic App (Simple Mode - No ServiceBusProxy)
 
 ```powershell
 # Navigate to Logic App folder

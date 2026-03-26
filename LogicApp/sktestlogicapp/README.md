@@ -235,6 +235,31 @@ Located in `/LogicApp/sktestlogicapp/Artifacts/Maps/`
 
 ## Setup Instructions
 
+### Quick Start: Local Development with Hybrid Mode
+
+For local development, we recommend using **Hybrid Mode**, which runs Logic Apps locally while connecting to cloud Azure Service Bus through a local proxy.
+
+📖 **For detailed local development instructions, see [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md)**
+
+**Quick Setup:**
+1. Start **Azurite** (local storage emulator): `azurite`
+2. Start **ServiceBusProxy** (port 7075): `cd src\ServiceBusProxy && func host start --port 7075`
+3. Start **Logic App** (port 7071): `cd LogicApp\sktestlogicapp && func host start --port 7071`
+
+**Requirements:**
+- ✅ Azurite installed (`npm install -g azurite`)
+- ✅ Azure Functions Core Tools
+- ✅ Azure Service Bus namespace (cloud)
+- ✅ ServiceBusProxy function (`src/ServiceBusProxy/`)
+
+**Hybrid Mode Benefits:**
+- 🎯 Local testing with real Azure Service Bus
+- 🐛 Full debugging in VS Code
+- 📊 Monitor via Azure Portal
+- 🚀 Same configuration as production (just different URLs)
+
+---
+
 ### 1. Database Setup
 
 Run the SQL script to create tables and stored procedures:
