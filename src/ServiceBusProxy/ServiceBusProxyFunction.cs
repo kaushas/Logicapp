@@ -71,24 +71,51 @@ public class ServiceBusProxyFunction
             _logger.LogInformation($"[PROXY]   EnqueuedTime: {message.EnqueuedTime}");
             _logger.LogInformation($"[PROXY]   DeliveryCount: {message.DeliveryCount}");
 
+            // Decode and log the actual message content
+            var messageBytes = message.Body.ToArray();
+            var messageContent = Encoding.UTF8.GetString(messageBytes);
+            _logger.LogInformation($"[PROXY] ==== DECODED MESSAGE CONTENT ====");
+            _logger.LogInformation(messageContent);
+            _logger.LogInformation($"[PROXY] ==== END MESSAGE CONTENT ====");
+
+            var contentType = message.ContentType ?? "application/json";
+            
+            // For JSON content types, parse the body and provide it as Content
+            // Logic Apps expects JSON messages to be pre-parsed
+            object? parsedContent = null;
+            if (contentType.Contains("json", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    parsedContent = JsonSerializer.Deserialize<object>(messageContent);
+                    _logger.LogInformation($"[PROXY] Successfully parsed JSON content");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning($"[PROXY] Failed to parse JSON content: {ex.Message}");
+                }
+            }
+
             // Convert to Logic Apps Service Bus message format
+            // Include both ContentData (base64) and ContentDataJson (parsed JSON) for compatibility
             var serviceBusMessage = new
             {
-                ContentData = Convert.ToBase64String(message.Body.ToArray()),
-                ContentType = message.ContentType ?? "application/json",
+                ContentData = Convert.ToBase64String(messageBytes),
+                ContentDataJson = parsedContent, // Parsed JSON for application/json content types
+                ContentType = contentType,
                 MessageId = message.MessageId,
                 SequenceNumber = message.SequenceNumber,
-                Properties = message.ApplicationProperties,
+                Properties = message.ApplicationProperties ?? new Dictionary<string, object>(),
                 CorrelationId = message.CorrelationId,
                 DeliveryCount = message.DeliveryCount,
-                EnqueuedTime = message.EnqueuedTime,
-                ExpiresAt = message.ExpiresAt,
-                LockedUntil = message.LockedUntil,
+                EnqueuedTime = message.EnqueuedTime.ToString("o"), // ISO 8601 format
+                ExpiresAt = message.ExpiresAt.ToString("o"),
+                LockedUntil = message.LockedUntil.ToString("o"),
                 LockToken = message.LockToken,
                 PartitionKey = message.PartitionKey,
                 ReplyTo = message.ReplyTo,
                 Subject = message.Subject,
-                TimeToLive = message.TimeToLive,
+                TimeToLive = message.TimeToLive.TotalSeconds, // Convert to seconds
                 To = message.To,
                 SessionId = message.SessionId,
                 ReplyToSessionId = message.ReplyToSessionId
@@ -112,10 +139,12 @@ public class ServiceBusProxyFunction
             // Use default serialization (PascalCase) to match Logic Apps expectation
             var json = JsonSerializer.Serialize(serviceBusMessage, new JsonSerializerOptions
             {
-                WriteIndented = false
+                WriteIndented = true
             });
             
-            _logger.LogInformation($"[PROXY] Response JSON preview: {json.Substring(0, Math.Min(200, json.Length))}...");
+            _logger.LogInformation($"[PROXY] ==== FULL RESPONSE JSON ====");
+            _logger.LogInformation(json);
+            _logger.LogInformation($"[PROXY] ==== END RESPONSE JSON ====");
             await response.WriteStringAsync(json);
 
             _logger.LogInformation($"[PROXY] Response sent successfully");

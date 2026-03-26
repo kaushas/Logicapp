@@ -50,22 +50,21 @@
         },
         "description": "LOG: Message details - Best Practice #7"
       },
-      "Compute_Message_ID": {
-        "type": "JavaScriptCode",
+      "Parse_Message_Payload": {
+        "type": "Compose",
         "inputs": {
-          "code": "// Compute message ID using SHA256 hash for idempotency\nconst crypto = require('crypto');\nconst message = workflowContext.trigger.outputs.body;\nconst messageContent = message.ContentData || message.contentData;\nif (!messageContent) { throw new Error('No ContentData found in message'); }\nconst rawPayload = Buffer.from(messageContent, 'base64').toString('utf8');\nconst messageId = crypto.createHash('sha256').update(rawPayload).digest('hex');\nreturn { messageId: messageId, rawPayload: rawPayload };"
+          "triggerBodyDump": "@triggerBody()",
+          "messageId": "@coalesce(triggerBody()?['MessageId'], 'NO_MESSAGE_ID')",
+          "hasContentDataJson": "@not(empty(triggerBody()?['ContentDataJson']))",
+          "hasContentData": "@not(empty(triggerBody()?['ContentData']))",
+          "rawPayload": "@if(not(empty(triggerBody()?['ContentDataJson'])), triggerBody()?['ContentDataJson'], if(not(empty(triggerBody()?['ContentData'])), json(base64ToString(triggerBody()?['ContentData'])), json('{}')))"
         },
         "runAfter": {
           "Log_Request_Received": [
             "Succeeded"
           ]
         },
-        "runtimeConfiguration": {
-          "retryPolicy": {
-            "type": "none"
-          }
-        },
-        "description": "Deterministic operation - decode Service Bus message and compute SHA256 - NO RETRY (Best Practice #9)"
+        "description": "Extract message ID and parse payload - ContentDataJson or base64 decode ContentData"
       },
       "Log_Message_Decoded": {
         "type": "Compose",
@@ -73,17 +72,19 @@
           "event": "MessageDecoded",
           "timestamp": "@utcNow()",
           "correlationId": "@variables('CorrelationId')",
-          "messageId": "@{body('Compute_Message_ID')?['messageId']}",
-          "payloadLength": "@length(body('Compute_Message_ID')?['rawPayload'])",
-          "payloadPreview": "@substring(body('Compute_Message_ID')?['rawPayload'], 0, min(200, length(body('Compute_Message_ID')?['rawPayload'])))",
-          "message": "Message decoded and ID computed successfully"
+          "messageId": "@{body('Parse_Message_Payload')?['messageId']}",
+          "hasContentDataJson": "@{body('Parse_Message_Payload')?['hasContentDataJson']}",
+          "hasContentData": "@{body('Parse_Message_Payload')?['hasContentData']}",
+          "payloadType": "@{coalesce(string(body('Parse_Message_Payload')?['rawPayload']?['eventType']), 'UNKNOWN')}",
+          "payloadLength": "@length(coalesce(string(body('Parse_Message_Payload')?['rawPayload']), ''))",
+          "message": "Message parsed successfully"
         },
         "runAfter": {
-          "Compute_Message_ID": [
+          "Parse_Message_Payload": [
             "Succeeded"
           ]
         },
-        "description": "LOG: Message decoded and SHA256 ID computed"
+        "description": "LOG: Message parsed from ContentDataJson or base64 decoded"
       },
       "Query_Inbox": {
         "type": "ApiConnection",
@@ -96,7 +97,7 @@
           "method": "get",
           "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Inbox]'))}/items",
           "queries": {
-            "$filter": "MessageId eq '@{body('Compute_Message_ID')?['messageId']}'",
+            "$filter": "MessageId eq '@{body('Parse_Message_Payload')?['messageId']}'",
             "$top": 1
           }
         },
@@ -117,26 +118,27 @@
         "description": "Idempotent read - RETRY ENABLED (Best Practice #9)"
       },
       "Check_Inbox_For_Duplicate": {
-        "type": "Query",
+        "type": "Compose",
         "inputs": {
-          "from": "@body('Query_Inbox')?['value']",
-          "where": "@equals(item()?['MessageId'], body('Compute_Message_ID')?['messageId'])"
+          "queryResults": "@body('Query_Inbox')?['value']",
+          "resultCount": "@length(coalesce(body('Query_Inbox')?['value'], createArray()))",
+          "isDuplicate": "@greater(length(coalesce(body('Query_Inbox')?['value'], createArray())), 0)"
         },
         "runAfter": {
           "Query_Inbox": [
             "Succeeded"
           ]
         },
-        "description": "In-memory filter - NO RETRY needed"
+        "description": "Check if query returned any results - indicates duplicate"
       },
       "Is_Duplicate": {
         "type": "If",
         "expression": {
           "and": [
             {
-              "greater": [
-                "@length(body('Check_Inbox_For_Duplicate'))",
-                0
+              "equals": [
+                "@body('Check_Inbox_For_Duplicate')?['isDuplicate']",
+                true
               ]
             }
           ]
@@ -146,7 +148,7 @@
             "type": "Compose",
             "inputs": {
               "correlationId": "@variables('CorrelationId')",
-              "messageId": "@body('Compute_Message_ID')?['messageId']",
+              "messageId": "@body('Parse_Message_Payload')?['messageId']",
               "event": "DuplicateDetected",
               "timestamp": "@utcNow()"
             },
@@ -183,11 +185,11 @@
                 },
                 "method": "post",
                  "body": {
-                  "MessageId": "@{body('Compute_Message_ID')?['messageId']}",
+                  "MessageId": "@body('Parse_Message_Payload')?['messageId']",
                   "SourceTopic": "@parameters('DEFAULT_SOURCE_TOPIC')",
                   "CorrelationId": "@variables('CorrelationId')",
-                  "RawPayload": "@{body('Compute_Message_ID')?['rawPayload']}",
-                  "ReceivedAt": "@{utcNow()}"
+                  "RawPayload": "@string(body('Parse_Message_Payload')?['rawPayload'])",
+                  "ReceivedAt": "@utcNow()"
                 },
                 "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Inbox]'))}/items"
               },
@@ -212,7 +214,7 @@
               "type": "Liquid",
               "kind": "JsonToJson",
               "inputs": {
-                "content": "@json(body('Compute_Message_ID')?['rawPayload'])",
+                "content": "@body('Parse_Message_Payload')?['rawPayload']",
                 "map": {
                   "source": "LogicApp",
                   "name": "@{outputs('Determine_Template_Name')}.liquid"
@@ -280,7 +282,7 @@
                 },
                 "method": "post",
                 "body": {
-                  "MessageId": "@{body('Compute_Message_ID')?['messageId']}",
+                  "MessageId": "@{body('Parse_Message_Payload')?['messageId']}",
                   "Destination": "ServiceBusCanonical",
                   "Payload": "@{string(body('Parse_Canonical_Event'))}",
                   "CreatedAt": "@{utcNow()}",
@@ -304,7 +306,7 @@
               "type": "Compose",
               "inputs": {
                 "correlationId": "@variables('CorrelationId')",
-                "messageId": "@body('Compute_Message_ID')?['messageId']",
+                "messageId": "@body('Parse_Message_Payload')?['messageId']",
                 "eventType": "@body('Parse_Canonical_Event')?['eventType']",
                 "event": "MessageQueued",
                 "timestamp": "@utcNow()"
@@ -338,7 +340,7 @@
             "type": "Compose",
             "inputs": {
               "correlationId": "@variables('CorrelationId')",
-              "messageId": "@body('Compute_Message_ID')?['messageId']",
+              "messageId": "@body('Parse_Message_Payload')?['messageId']",
               "event": "ProcessingError",
               "error": "@result('Is_Duplicate')",
               "timestamp": "@utcNow()"
@@ -410,31 +412,6 @@
           }
         ],
         "description": "Service Bus queue trigger for Azure deployment - polls every 30 seconds"
-      },
-      "manual": {
-        "type": "Request",
-        "kind": "Http",
-        "inputs": {
-          "schema": {
-            "type": "object",
-            "properties": {
-              "ContentData": {
-                "type": "string",
-                "description": "Base64 encoded message content"
-              },
-              "Properties": {
-                "type": "object"
-              }
-            }
-          },
-          "method": "POST"
-        },
-        "conditions": [
-          {
-            "expression": "@equals(coalesce(appsetting('USE_HTTP_TRIGGER_FOR_LOCAL'), 'false'), 'true')"
-          }
-        ],
-        "description": "HTTP trigger for local development - accepts Service Bus message structure"
       }
     }
   },
