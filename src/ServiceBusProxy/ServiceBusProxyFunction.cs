@@ -22,6 +22,24 @@ public class ServiceBusProxyFunction
     }
 
     /// <summary>
+    /// Receives payloads from Logic App and logs them
+    /// POST /api/logpayload
+    /// </summary>
+    [Function("LogPayload")]
+    public async Task<HttpResponseData> LogPayload(
+        [HttpTrigger(AuthorizationLevel.Anonymous, "post", Route = "logpayload")]
+        HttpRequestData req)
+    {
+        string body = await new StreamReader(req.Body).ReadToEndAsync();
+        _logger.LogInformation("[LOGPAYLOAD] Received payload from Logic App:");
+        _logger.LogInformation(body);
+
+        var response = req.CreateResponse(HttpStatusCode.OK);
+        await response.WriteStringAsync("Payload logged");
+        return response;
+    }
+
+    /// <summary>
     /// Proxies Service Bus queue message retrieval for Logic Apps local development
     /// GET /apim/servicebus/{connectionId}/{queueName}/messages/head?queueType=Main
     /// </summary>

@@ -63,5 +63,29 @@
   "D365_VENDORADDRESS_QUEUE": {
     "type": "String",
     "value": "sbq-d365finops-vendoraddress-upserts"
+  },
+  "sql-ConnectionRuntimeUrl": {
+    "type": "String",
+    "value": "@appsetting('sql-ConnectionRuntimeUrl')"
+  },
+  "sql-Authentication": {
+    "type": "Object",
+    "value": {
+      "type": "Raw",
+      "scheme": "Key",
+      "parameter": "@appsetting('SQL_CONNECTION_STRING')"
+    }
+  },
+  "servicebus-ConnectionRuntimeUrl": {
+    "type": "String",
+    "value": "@appsetting('servicebus-ConnectionRuntimeUrl')"
+  },
+  "servicebus-Authentication": {
+    "type": "Object",
+    "value": {
+      "type": "Raw",
+      "scheme": "Key",
+      "parameter": "@appsetting('SERVICEBUS_CONNECTION_STRING')"
+    }
   }
 }

@@ -2,6 +2,29 @@
   "definition": {
     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
     "actions": {
+      "Debug_Log_TriggerBody": {
+        "type": "Compose",
+        "inputs": "@triggerBody()",
+        "runAfter": {},
+        "description": "DEBUG: Log the full trigger body to validate structure (wrapping check)"
+      },
+      "Log_TriggerBody_To_Proxy": {
+        "type": "Http",
+        "inputs": {
+          "method": "POST",
+          "uri": "http://localhost:7075/logpayload",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "@triggerBody()"
+        },
+        "runAfter": {
+          "Debug_Log_TriggerBody": [
+            "Succeeded"
+          ]
+        },
+        "description": "POST trigger body to ServiceBusProxy for logging"
+      },
       "Initialize_Correlation_ID": {
         "type": "InitializeVariable",
         "inputs": {
@@ -44,9 +67,9 @@
           "contentType": "@triggerBody()?['ContentType']"
         },
         "runAfter": {
-          "Log_Trigger_Received": [
-            "Succeeded"
-          ]
+            "Debug_Log_TriggerBody": [
+              "Succeeded"
+            ]
         },
         "description": "LOG: Message details - Best Practice #7"
       },
@@ -54,10 +77,11 @@
         "type": "Compose",
         "inputs": {
           "triggerBodyDump": "@triggerBody()",
-          "messageId": "@coalesce(triggerBody()?['MessageId'], 'NO_MESSAGE_ID')",
+          "messageId": "@coalesce(if(not(empty(triggerBody()?['ContentDataJson'])), triggerBody()?['ContentDataJson']?['messageId'], if(not(empty(triggerBody()?['ContentData'])), json(base64ToString(triggerBody()?['ContentData']))?['messageId'], null)), triggerBody()?['MessageId'], 'NO_MESSAGE_ID')",
           "hasContentDataJson": "@not(empty(triggerBody()?['ContentDataJson']))",
           "hasContentData": "@not(empty(triggerBody()?['ContentData']))",
-          "rawPayload": "@if(not(empty(triggerBody()?['ContentDataJson'])), triggerBody()?['ContentDataJson'], if(not(empty(triggerBody()?['ContentData'])), json(base64ToString(triggerBody()?['ContentData'])), json('{}')))"
+          "rawPayload": "@if(not(empty(triggerBody()?['ContentDataJson'])), triggerBody()?['ContentDataJson'], if(not(empty(triggerBody()?['ContentData'])), json(base64ToString(triggerBody()?['ContentData'])), json('{}')))",
+          "businessMessageId": "@coalesce(if(not(empty(triggerBody()?['ContentDataJson'])), triggerBody()?['ContentDataJson']?['messageId'], if(not(empty(triggerBody()?['ContentData'])), json(base64ToString(triggerBody()?['ContentData']))?['messageId'], null)), 'NO_BUSINESS_MESSAGE_ID')"
         },
         "runAfter": {
           "Log_Request_Received": [
@@ -65,6 +89,23 @@
           ]
         },
         "description": "Extract message ID and parse payload - ContentDataJson or base64 decode ContentData"
+      },
+      "Log_Parsed_Message_To_Proxy": {
+        "type": "Http",
+        "inputs": {
+          "method": "POST",
+          "uri": "http://localhost:7075/logpayload",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "@body('Parse_Message_Payload')"
+        },
+        "runAfter": {
+          "Parse_Message_Payload": [
+            "Succeeded"
+          ]
+        },
+        "description": "POST parsed message payload to ServiceBusProxy for debugging"
       },
       "Log_Message_Decoded": {
         "type": "Compose",
@@ -282,11 +323,11 @@
                 },
                 "method": "post",
                 "body": {
-                  "MessageId": "@{body('Parse_Message_Payload')?['messageId']}",
-                  "Destination": "ServiceBusCanonical",
-                  "Payload": "@{string(body('Parse_Canonical_Event'))}",
-                  "CreatedAt": "@{utcNow()}",
-                  "Sent": false
+                  "MessageId": "@body('Parse_Message_Payload')?['messageId']",
+                  "SourceTopic": "@parameters('DEFAULT_SOURCE_TOPIC')",
+                  "CorrelationId": "@variables('CorrelationId')",
+                  "RawPayload": "@string(body('Parse_Message_Payload')?['rawPayload'])",
+                  "ReceivedAt": "@utcNow()"
                 },
                 "path": "/v2/datasets/@{encodeURIComponent(encodeURIComponent('default'))},@{encodeURIComponent(encodeURIComponent('default'))}/tables/@{encodeURIComponent(encodeURIComponent('[dbo].[Outbox]'))}/items"
               },

@@ -2,31 +2,23 @@
   "managedApiConnections": {
     "sql": {
       "api": {
-        "id": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Web/locations/eastus/managedApis/sql"
+        "id": "/subscriptions/@{appsetting('WORKFLOWS_SUBSCRIPTION_ID')}/providers/Microsoft.Web/locations/@{appsetting('WORKFLOWS_LOCATION_NAME')}/managedApis/sql"
       },
       "connection": {
-        "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/local/providers/Microsoft.Web/connections/sql"
+        "id": "/subscriptions/@{appsetting('WORKFLOWS_SUBSCRIPTION_ID')}/resourceGroups/@{appsetting('WORKFLOWS_RESOURCE_GROUP_NAME')}/providers/Microsoft.Web/connections/sql"
       },
-      "connectionRuntimeUrl": "http://localhost:7075/apim/sql/00000000-0000-0000-0000-000000000001",
-      "authentication": {
-        "type": "Raw",
-        "scheme": "Key",
-        "parameter": "@appsetting('SQL_CONNECTION_STRING')"
-      }
+      "connectionRuntimeUrl": "@parameters('sql-ConnectionRuntimeUrl')",
+      "authentication": "@parameters('sql-Authentication')"
     },
     "servicebus": {
       "api": {
-        "id": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Web/locations/eastus/managedApis/servicebus"
+        "id": "/subscriptions/@{appsetting('WORKFLOWS_SUBSCRIPTION_ID')}/providers/Microsoft.Web/locations/@{appsetting('WORKFLOWS_LOCATION_NAME')}/managedApis/servicebus"
       },
       "connection": {
-        "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/local/providers/Microsoft.Web/connections/servicebus"
+        "id": "/subscriptions/@{appsetting('WORKFLOWS_SUBSCRIPTION_ID')}/resourceGroups/@{appsetting('WORKFLOWS_RESOURCE_GROUP_NAME')}/providers/Microsoft.Web/connections/servicebus"
       },
-      "connectionRuntimeUrl": "http://localhost:7075/apim/servicebus/00000000-0000-0000-0000-000000000002",
-      "authentication": {
-        "type": "Raw",
-        "scheme": "Key",
-        "parameter": "@appsetting('SERVICEBUS_CONNECTION_STRING')"
-      }
+      "connectionRuntimeUrl": "@parameters('servicebus-ConnectionRuntimeUrl')",
+      "authentication": "@parameters('servicebus-Authentication')"
     }
   }
 }

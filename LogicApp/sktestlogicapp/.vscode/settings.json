@@ -1,0 +1,16 @@
+{
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        ".mule": true
+    },
+    "terminal.integrated.env.windows": {
+        "PATH": "C:\\Users\\sandeep.kaushal\\.azurelogicapps\\dependencies\\DotNetSDK;${env:PATH}"
+    },
+    "omnisharp.dotNetCliPaths": [
+        "C:\\Users\\sandeep.kaushal\\.azurelogicapps\\dependencies\\DotNetSDK"
+    ]
+}
