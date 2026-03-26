@@ -1,0 +1,68 @@
+{
+  "dataAreaId": "USMF",
+  "itemNumber": "A0001",
+  "itemName": "Wireless Keyboard",
+  "searchName": "KEYBOARD-WIRELESS",
+  "itemGroupId": "PERIPH",
+  "itemModelGroupId": "STD",
+  "itemType": "Item",
+  "productType": "Item",
+  "primaryVendorAccount": "V-1001",
+  "inventoryUnitOfMeasure": "ea",
+  "purchaseUnitOfMeasure": "ea",
+  "salesUnitOfMeasure": "ea",
+  "bom": false,
+  "formula": false,
+  "dimensions": {
+    "height": 2.5,
+    "width": 18.0,
+    "depth": 8.0,
+    "weight": 0.75,
+    "unitOfMeasure": "in/lbs"
+  },
+  "pricing": {
+    "purchasePrice": 25.50,
+    "salesPrice": 49.99,
+    "costPrice": 22.00,
+    "priceUnit": 1.0,
+    "priceUnitOfMeasure": "ea"
+  },
+  "inventory": {
+    "defaultWarehouse": "11",
+    "defaultSite": "1",
+    "inventoryProfileId": "STD",
+    "batchNumberGroup": "",
+    "serialNumberGroup": ""
+  },
+  "procurement": {
+    "purchLeadTime": 7,
+    "autoReservation": true,
+    "minimumOrderQuantity": 10,
+    "maximumOrderQuantity": 1000,
+    "standardOrderQuantity": 100
+  },
+  "sales": {
+    "salesLeadTime": 2,
+    "minimumSalesQuantity": 1,
+    "maximumSalesQuantity": 500
+  },
+  "taxation": {
+    "itemSalesTaxGroup": "FULL",
+    "itemPurchaseTaxGroup": "FULL"
+  },
+  "trackingDimensions": {
+    "serialNumberControl": false,
+    "batchControl": false,
+    "locationManaged": true
+  },
+  "isActive": true,
+  "isStopped": false,
+  "modifiedDateTime": "2026-03-25T11:20:00Z",
+  "modifiedBy": "D365User",
+  "correlationId": "d365-item-a0001-20260325-112000",
+  "messageId": "msg-d365-item-a0001-20260325T112000",
+  "eventType": "ItemCreated",
+  "sourceSystem": "D365FinOps",
+  "sourceEntity": "InventTable",
+  "operationType": "Insert"
+}

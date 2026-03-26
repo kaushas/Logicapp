@@ -84,7 +84,7 @@
                               "RetryAttempt": "@{outputs('Parse_Outbox_Record')?['RetryCount']}"
                             }
                           },
-                          "path": "/@{encodeURIComponent(encodeURIComponent('canonical-events'))}/messages"
+                          "path": "/@{encodeURIComponent(encodeURIComponent(parameters('CANONICAL_TOPIC_NAME')))}/messages"
                         },
                         "runAfter": {},
                         "runtimeConfiguration": {
@@ -413,6 +413,10 @@
       "MANHATTAN_PUBLISH_URL": {
         "type": "String",
         "defaultValue": "https://pubsub.googleapis.com/v1/projects/batf-masc-prod-01-ops/topics/HST_XNT_Facility_GCPQ:publish"
+      },
+      "CANONICAL_TOPIC_NAME": {
+        "type": "String",
+        "defaultValue": "canonical-events"
       }
     },
     "triggers": {

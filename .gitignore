@@ -97,3 +97,4 @@ infrastructure.parameters.local.json
 
 ## Keep certain files
 !**/lib/builtinOperationSdks/**
+.fake

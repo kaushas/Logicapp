@@ -61,7 +61,9 @@ SUCCESS      FAILURE
 
 ### 1. process-message Workflow
 
-**Trigger**: HTTP POST Request
+**Trigger**: Service Bus Queue (`inbound-messages`)
+- Automatically triggered when messages arrive from D365 FinOps
+- Reads message body and custom properties for routing
 
 **Actions**:
 1. **Compute_Message_ID** (JavaScript Inline Code)
@@ -73,7 +75,7 @@ SUCCESS      FAILURE
    - Implements deduplication
 
 3. **Is_Duplicate** (Condition)
-   - If duplicate: Returns 200 with status "Duplicate"
+   - If duplicate: Logs and completes processing
    - If new: Proceeds to processing
 
 4. **Insert_Into_Inbox** (SQL Connector)
@@ -81,7 +83,7 @@ SUCCESS      FAILURE
    - Captures MessageId, SourceTopic, CorrelationId, RawPayload, ReceivedAt
 
 5. **Determine_Template_Name** (Compose)
-   - Reads `x-source-topic` header or defaults to "customerToCanonical"
+   - Reads `x-source-topic` from message properties or defaults to "customerToCanonical"
 
 6. **Transform_With_Liquid** (Built-in Liquid Action)
    - Applies Liquid template from `Artifacts/Maps/`

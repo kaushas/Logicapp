@@ -3,5 +3,13 @@
   "extensionBundle": {
     "id": "Microsoft.Azure.Functions.ExtensionBundle.Workflows",
     "version": "[1.*, 2.0.0)"
+  },
+  "logging": {
+    "logLevel": {
+      "default": "Information",
+      "Host.Triggers.Workflow": "Debug",
+      "Host.Workflows": "Debug",
+      "Microsoft.Azure.Workflows": "Debug"
+    }
   }
 }

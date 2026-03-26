@@ -9,12 +9,29 @@
             {
               "name": "CorrelationId",
               "type": "string",
-              "value": "@{coalesce(triggerOutputs()?['headers']?['x-correlation-id'], guid())}"
+              "value": "@{coalesce(triggerBody()?['Properties']?['CorrelationId'], triggerBody()?['CorrelationId'], guid())}"
             }
           ]
         },
         "runAfter": {},
-        "description": "Extract or generate correlation ID for end-to-end tracing - Best Practice #8"
+        "description": "Extract or generate correlation ID from Service Bus message properties - Best Practice #8"
+      },
+      "Log_Trigger_Received": {
+        "type": "Compose",
+        "inputs": {
+          "event": "TriggerFired",
+          "timestamp": "@utcNow()",
+          "workflow": "process-message",
+          "triggerOutputs": "@triggerOutputs()",
+          "triggerBody": "@triggerBody()",
+          "message": "Service Bus trigger fired - message received from queue"
+        },
+        "runAfter": {
+          "Initialize_Correlation_ID": [
+            "Succeeded"
+          ]
+        },
+        "description": "LOG: Trigger fired - captures full trigger output for debugging"
       },
       "Log_Request_Received": {
         "type": "Compose",
@@ -22,19 +39,21 @@
           "correlationId": "@variables('CorrelationId')",
           "event": "MessageReceived",
           "timestamp": "@utcNow()",
-          "workflow": "process-message"
+          "workflow": "process-message",
+          "messageProperties": "@triggerBody()?['Properties']",
+          "contentType": "@triggerBody()?['ContentType']"
         },
         "runAfter": {
-          "Initialize_Correlation_ID": [
+          "Log_Trigger_Received": [
             "Succeeded"
           ]
         },
-        "description": "Log to Application Insights - Best Practice #7"
+        "description": "LOG: Message details - Best Practice #7"
       },
       "Compute_Message_ID": {
         "type": "JavaScriptCode",
         "inputs": {
-          "code": "// Compute message ID using SHA256 hash for idempotency\nconst crypto = require('crypto');\nconst rawPayload = workflowContext.trigger.outputs.body;\nconst messageId = crypto.createHash('sha256').update(JSON.stringify(rawPayload)).digest('hex');\nreturn { messageId: messageId, rawPayload: JSON.stringify(rawPayload) };"
+          "code": "// Compute message ID using SHA256 hash for idempotency\nconst crypto = require('crypto');\nconst message = workflowContext.trigger.outputs.body;\nconst messageContent = message.ContentData || message.contentData;\nif (!messageContent) { throw new Error('No ContentData found in message'); }\nconst rawPayload = Buffer.from(messageContent, 'base64').toString('utf8');\nconst messageId = crypto.createHash('sha256').update(rawPayload).digest('hex');\nreturn { messageId: messageId, rawPayload: rawPayload };"
         },
         "runAfter": {
           "Log_Request_Received": [
@@ -46,7 +65,25 @@
             "type": "none"
           }
         },
-        "description": "Deterministic operation - NO RETRY (Best Practice #9)"
+        "description": "Deterministic operation - decode Service Bus message and compute SHA256 - NO RETRY (Best Practice #9)"
+      },
+      "Log_Message_Decoded": {
+        "type": "Compose",
+        "inputs": {
+          "event": "MessageDecoded",
+          "timestamp": "@utcNow()",
+          "correlationId": "@variables('CorrelationId')",
+          "messageId": "@{body('Compute_Message_ID')?['messageId']}",
+          "payloadLength": "@length(body('Compute_Message_ID')?['rawPayload'])",
+          "payloadPreview": "@substring(body('Compute_Message_ID')?['rawPayload'], 0, min(200, length(body('Compute_Message_ID')?['rawPayload'])))",
+          "message": "Message decoded and ID computed successfully"
+        },
+        "runAfter": {
+          "Compute_Message_ID": [
+            "Succeeded"
+          ]
+        },
+        "description": "LOG: Message decoded and SHA256 ID computed"
       },
       "Query_Inbox": {
         "type": "ApiConnection",
@@ -64,7 +101,7 @@
           }
         },
         "runAfter": {
-          "Compute_Message_ID": [
+          "Log_Message_Decoded": [
             "Succeeded"
           ]
         },
@@ -116,25 +153,17 @@
             "runAfter": {},
             "description": "Log duplicate to Application Insights"
           },
-          "Return_Duplicate_Response": {
-            "type": "Response",
-            "kind": "Http",
+          "Terminate_Duplicate": {
+            "type": "Terminate",
             "inputs": {
-              "statusCode": 200,
-              "headers": {
-                "x-correlation-id": "@variables('CorrelationId')"
-              },
-              "body": {
-                "status": "Duplicate",
-                "messageId": "@{body('Compute_Message_ID')?['messageId']}",
-                "correlationId": "@variables('CorrelationId')"
-              }
+              "runStatus": "Succeeded"
             },
             "runAfter": {
               "Log_Duplicate_Detected": [
                 "Succeeded"
               ]
-            }
+            },
+            "description": "Terminate successfully - duplicate message already processed"
           }
         },
         "runAfter": {
@@ -155,7 +184,7 @@
                 "method": "post",
                  "body": {
                   "MessageId": "@{body('Compute_Message_ID')?['messageId']}",
-                  "SourceTopic": "@{coalesce(triggerOutputs()?['headers']?['x-source-topic'], 'customerToCanonical')}",
+                  "SourceTopic": "@parameters('DEFAULT_SOURCE_TOPIC')",
                   "CorrelationId": "@variables('CorrelationId')",
                   "RawPayload": "@{body('Compute_Message_ID')?['rawPayload']}",
                   "ReceivedAt": "@{utcNow()}"
@@ -172,7 +201,7 @@
             },
             "Determine_Template_Name": {
               "type": "Compose",
-              "inputs": "@{coalesce(triggerOutputs()?['headers']?['x-source-topic'], 'customerToCanonical')}",
+              "inputs": "@parameters('DEFAULT_SOURCE_TOPIC')",
               "runAfter": {
                 "Insert_Into_Inbox": [
                   "Succeeded"
@@ -183,7 +212,7 @@
               "type": "Liquid",
               "kind": "JsonToJson",
               "inputs": {
-                "content": "@triggerBody()",
+                "content": "@json(body('Compute_Message_ID')?['rawPayload'])",
                 "map": {
                   "source": "LogicApp",
                   "name": "@{outputs('Determine_Template_Name')}.liquid"
@@ -287,28 +316,17 @@
               },
               "description": "Log to Application Insights - Best Practice #7"
             },
-            "Return_Accepted_Response": {
-              "type": "Response",
-              "kind": "Http",
+            "Terminate_Success": {
+              "type": "Terminate",
               "inputs": {
-                "statusCode": 202,
-                "headers": {
-                  "x-correlation-id": "@variables('CorrelationId')",
-                  "Location": "@{concat(workflow()['run']['name'], '/status/', body('Compute_Message_ID')?['messageId'])}"
-                },
-                "body": {
-                  "status": "Accepted",
-                  "messageId": "@{body('Compute_Message_ID')?['messageId']}",
-                  "correlationId": "@variables('CorrelationId')",
-                  "statusUrl": "@{concat('/api/message-status/', body('Compute_Message_ID')?['messageId'])}"
-                }
+                "runStatus": "Succeeded"
               },
               "runAfter": {
                 "Log_Message_Queued": [
                   "Succeeded"
                 ]
               },
-              "description": "Return 202 Accepted with status URL - Best Practice #5"
+              "description": "Terminate successfully - message processed and queued"
             }
           }
         }
@@ -328,29 +346,21 @@
             "runAfter": {},
             "description": "Log error to Application Insights - Best Practice #7"
           },
-          "Return_Error_Response": {
-            "type": "Response",
-            "kind": "Http",
+          "Terminate_Error": {
+            "type": "Terminate",
             "inputs": {
-              "statusCode": 500,
-              "headers": {
-                "x-correlation-id": "@variables('CorrelationId')"
-              },
-              "body": {
-                "status": "Error",
-                "correlationId": "@variables('CorrelationId')",
-                "error": {
-                  "code": "ProcessingFailed",
-                  "message": "Message processing failed - check logs",
-                  "details": "@result('Is_Duplicate')"
-                }
+              "runStatus": "Failed",
+              "runError": {
+                "code": "ProcessingError",
+                "message": "Message processing failed - correlation ID: @{variables('CorrelationId')}"
               }
             },
             "runAfter": {
               "Log_Error": [
                 "Succeeded"
               ]
-            }
+            },
+            "description": "Terminate with failure - processing error"
           }
         },
         "runAfter": {
@@ -365,18 +375,66 @@
     },
     "contentVersion": "1.0.0.0",
     "outputs": {},
+    "parameters": {
+      "DEFAULT_SOURCE_TOPIC": {
+        "type": "String",
+        "defaultValue": "customerToCanonical"
+      },
+      "D365_CUSTOMER_QUEUE": {
+        "type": "String",
+        "defaultValue": "sbq-d365finops-customer-upserts"
+      }
+    },
     "triggers": {
-      "When_HTTP_Request_Received": {
+      "When_a_message_is_received_in_a_queue": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "referenceName": "servicebus"
+            }
+          },
+          "method": "get",
+          "path": "/@{encodeURIComponent(encodeURIComponent(parameters('D365_CUSTOMER_QUEUE')))}/messages/head",
+          "queries": {
+            "queueType": "Main"
+          }
+        },
+        "recurrence": {
+          "frequency": "Second",
+          "interval": 30
+        },
+        "conditions": [
+          {
+            "expression": "@not(equals(coalesce(appsetting('USE_HTTP_TRIGGER_FOR_LOCAL'), 'false'), 'true'))"
+          }
+        ],
+        "description": "Service Bus queue trigger for Azure deployment - polls every 30 seconds"
+      },
+      "manual": {
         "type": "Request",
         "kind": "Http",
         "inputs": {
           "schema": {
             "type": "object",
-            "properties": {}
+            "properties": {
+              "ContentData": {
+                "type": "string",
+                "description": "Base64 encoded message content"
+              },
+              "Properties": {
+                "type": "object"
+              }
+            }
           },
           "method": "POST"
         },
-        "description": "Accept POST requests - Stateless execution (Best Practice #2)"
+        "conditions": [
+          {
+            "expression": "@equals(coalesce(appsetting('USE_HTTP_TRIGGER_FOR_LOCAL'), 'false'), 'true')"
+          }
+        ],
+        "description": "HTTP trigger for local development - accepts Service Bus message structure"
       }
     }
   },

@@ -6,5 +6,62 @@
   "MANHATTAN_PUBLISH_URL": {
     "type": "String",
     "value": "https://pubsub.googleapis.com/v1/projects/batf-masc-prod-01-ops/topics/HST_XNT_Facility_GCPQ:publish"
+  },
+  "TOPIC_ITEM_CHANGED": {
+    "type": "String",
+    "value": "sbt-d365Ffinops-ItemChanged"
+  },
+  "TOPIC_CUSTOMER_CHANGED": {
+    "type": "String",
+    "value": "sbt-d365-finops-CustomerChanged"
+  },
+  "TOPIC_VENDOR_CHANGED": {
+    "type": "String",
+    "value": "sbt-d365-finops-VendorChanged"
+  },
+  "TOPIC_BUSINESSADDRESS_CHANGED": {
+    "type": "String",
+    "value": "sbt-d365-finops-BusinessAddressChanged"
+  },
+  "TOPIC_UNITOFMEASURE_CHANGED": {
+    "type": "String",
+    "value": "sbt-d365-finops-UnitOfMeasureChanged"
+  },
+  "CANONICAL_TOPIC_NAME": {
+    "type": "String",
+    "value": "canonical-events",
+    "description": "Generic canonical topic - deprecated, use specific TOPIC_* parameters"
+  },
+  "DEAD_LETTER_TOPIC_NAME": {
+    "type": "String",
+    "value": "dead-letter-events"
+  },
+  "DEFAULT_SOURCE_TOPIC": {
+    "type": "String",
+    "value": "customerToCanonical"
+  },
+  "D365_ITEM_QUEUE": {
+    "type": "String",
+    "value": "sbq-d365finops-item-upserts"
+  },
+  "D365_ITEMUNITCONVERSION_QUEUE": {
+    "type": "String",
+    "value": "sbq-d365finops-itemunitconversion-upserts"
+  },
+  "D365_CUSTOMER_QUEUE": {
+    "type": "String",
+    "value": "sbq-d365finops-customer-upserts"
+  },
+  "D365_CUSTOMERADDRESS_QUEUE": {
+    "type": "String",
+    "value": "sbq-d365finops-customeraddress-upserts"
+  },
+  "D365_VENDOR_QUEUE": {
+    "type": "String",
+    "value": "sbq-d365finops-vendor-upserts"
+  },
+  "D365_VENDORADDRESS_QUEUE": {
+    "type": "String",
+    "value": "sbq-d365finops-vendoraddress-upserts"
   }
 }

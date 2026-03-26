@@ -127,7 +127,7 @@
                           "RetryCount": "@{outputs('Parse_Failed_Message')?['RetryCount']}"
                         }
                       },
-                      "path": "/@{encodeURIComponent(encodeURIComponent('dead-letter-events'))}/messages"
+                      "path": "/@{encodeURIComponent(encodeURIComponent(parameters('DEAD_LETTER_TOPIC_NAME')))}/messages"
                     },
                     "runAfter": {},
                     "runtimeConfiguration": {
@@ -269,6 +269,12 @@
     },
     "contentVersion": "1.0.0.0",
     "outputs": {},
+    "parameters": {
+      "DEAD_LETTER_TOPIC_NAME": {
+        "type": "String",
+        "defaultValue": "dead-letter-events"
+      }
+    },
     "triggers": {
       "Manual_Or_Event_Grid_Trigger": {
         "type": "Request",

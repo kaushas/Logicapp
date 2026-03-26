@@ -8,25 +8,41 @@ cd LogicApp/sktestlogicapp
 func start --port 7071
 ```
 
-### Test Message Processing
+### Send Test Messages to Service Bus
+
+#### Using Azure CLI
 ```bash
 # Customer message
-curl -X POST http://localhost:7071/api/process-message \
-  -H "Content-Type: application/json" \
-  -H "x-source-topic: customerToCanonical" \
-  -d '{"correlationId": "test-001", "customerId": "C001", "name": "Acme Corp"}'
+az servicebus queue message send \
+  --resource-group YOUR_RG \
+  --namespace-name YOUR_NAMESPACE \
+  --queue-name inbound-messages \
+  --body '{"correlationId": "test-001", "customerId": "C001", "name": "Acme Corp"}' \
+  --properties x-source-topic=customerToCanonical x-correlation-id=test-001
 
 # Vendor message
-curl -X POST http://localhost:7071/api/process-message \
-  -H "Content-Type: application/json" \
-  -H "x-source-topic: vendorToCanonical" \
-  -d '{"correlationId": "test-002", "vendorId": "V001", "name": "Vendor Inc"}'
+az servicebus queue message send \
+  --resource-group YOUR_RG \
+  --namespace-name YOUR_NAMESPACE \
+  --queue-name inbound-messages \
+  --body '{"correlationId": "test-002", "vendorId": "V001", "name": "Vendor Inc"}' \
+  --properties x-source-topic=vendorToCanonical x-correlation-id=test-002
 
 # Test duplicate (send same message twice)
-curl -X POST http://localhost:7071/api/process-message \
-  -H "Content-Type: application/json" \
-  -d '{"correlationId": "dup-test", "customerId": "C999"}'
+az servicebus queue message send \
+  --resource-group YOUR_RG \
+  --namespace-name YOUR_NAMESPACE \
+  --queue-name inbound-messages \
+  --body '{"correlationId": "dup-test", "customerId": "C999"}' \
+  --properties x-source-topic=customerToCanonical
 ```
+
+#### Using Service Bus Explorer (Azure Portal)
+1. Navigate to Service Bus → Queues → `inbound-messages`
+2. Click "Service Bus Explorer" → "Send Messages"
+3. Enter message body (JSON)
+4. Add custom properties: `x-source-topic`, `x-correlation-id`
+5. Click "Send"
 
 ## Database Queries
 

@@ -7,7 +7,7 @@
       "connection": {
         "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/local/providers/Microsoft.Web/connections/sql"
       },
-      "connectionRuntimeUrl": "http://localhost:7075/apim/sql/00000000-0000-0000-0000-000000000001",
+      "connectionRuntimeUrl": "https://localhost",
       "authentication": {
         "type": "Raw",
         "scheme": "Key",
@@ -21,7 +21,7 @@
       "connection": {
         "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/local/providers/Microsoft.Web/connections/servicebus"
       },
-      "connectionRuntimeUrl": "http://localhost:7075/apim/servicebus/00000000-0000-0000-0000-000000000002",
+      "connectionRuntimeUrl": "https://localhost",
       "authentication": {
         "type": "Raw",
         "scheme": "Key",
