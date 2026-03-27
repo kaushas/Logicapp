@@ -12,6 +12,6 @@
     <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.19.0" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\src\LogicAppProcessor\LogicAppProcessor.csproj" />
+    <ProjectReference Include="..\..\functions\LogicAppProcessor\LogicAppProcessor.csproj" />
   </ItemGroup>
 </Project>
