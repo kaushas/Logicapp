@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Linq;
 using System.Net;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Azure.WebJobs.Extensions.Http;
@@ -15,6 +17,13 @@ namespace LogicAppProcessor.FunctionApp
 {
     public class ProcessMessageFunction
     {
+        // Static in-process cache for idempotency key tracking (survives across function invocations)
+        private static readonly ConcurrentDictionary<string, DateTime> _idempotencyCache = 
+            new ConcurrentDictionary<string, DateTime>();
+        
+        // TTL for cached idempotency keys (5 minutes)
+        private static readonly TimeSpan _cacheExpiry = TimeSpan.FromMinutes(5);
+
         private readonly IMessageIdService _messageIdService;
         private readonly ILiquidMapper _liquidMapper;
         private readonly IInboxRepository _inboxRepository;
@@ -162,6 +171,105 @@ namespace LogicAppProcessor.FunctionApp
                 {
                     StatusCode = 500
                 };
+            }
+        }
+
+        /// <summary>
+        /// CheckDuplicate - Called from Logic Apps to check if message has been processed recently
+        /// Uses in-process cache (5-min TTL) to avoid redundant processing without DB calls
+        /// </summary>
+        [FunctionName("CheckDuplicate")]
+        public IActionResult CheckDuplicate(
+            [HttpTrigger(AuthorizationLevel.Function, "post", Route = "check-duplicate")] HttpRequest req,
+            ILogger log)
+        {
+            try
+            {
+                // Extract idempotency key from request body or query parameter
+                string idempotencyKey = null;
+
+                if (req.Query.ContainsKey("key"))
+                {
+                    idempotencyKey = req.Query["key"].ToString();
+                }
+                else
+                {
+                    // Try reading from JSON body
+                    string body = new System.IO.StreamReader(req.Body).ReadToEndAsync().Result;
+                    if (!string.IsNullOrWhiteSpace(body))
+                    {
+                        var json = System.Text.Json.JsonDocument.Parse(body);
+                        if (json.RootElement.TryGetProperty("idempotencyKey", out var keyElement))
+                        {
+                            idempotencyKey = keyElement.GetString();
+                        }
+                    }
+                }
+
+                if (string.IsNullOrWhiteSpace(idempotencyKey))
+                {
+                    return new BadRequestObjectResult(new { error = "Missing idempotencyKey" });
+                }
+
+                // Clean expired entries from cache
+                CleanExpiredCacheEntries(log);
+
+                // Check if key exists in cache
+                bool isDuplicate = _idempotencyCache.ContainsKey(idempotencyKey);
+
+                if (isDuplicate)
+                {
+                    log.LogInformation($"Duplicate detected in cache: {idempotencyKey}");
+                    return new OkObjectResult(new 
+                    { 
+                        isDuplicate = true, 
+                        message = "Message already processed in last 5 minutes",
+                        idempotencyKey 
+                    });
+                }
+
+                // Not a duplicate - add to cache
+                _idempotencyCache.TryAdd(idempotencyKey, DateTime.UtcNow);
+                log.LogInformation($"New message cached: {idempotencyKey}");
+
+                return new OkObjectResult(new 
+                { 
+                    isDuplicate = false,
+                    message = "Message is new, proceed with processing",
+                    idempotencyKey 
+                });
+            }
+            catch (Exception ex)
+            {
+                log.LogError(ex, "Error in CheckDuplicate function");
+                return new ObjectResult(new 
+                { 
+                    error = "Internal server error", 
+                    message = ex.Message 
+                })
+                {
+                    StatusCode = 500
+                };
+            }
+        }
+
+        /// <summary>
+        /// Cleans expired entries from the idempotency cache
+        /// Removes keys that are older than _cacheExpiry (5 minutes)
+        /// </summary>
+        private static void CleanExpiredCacheEntries(ILogger log)
+        {
+            var expiredKeys = _idempotencyCache
+                .Where(kvp => DateTime.UtcNow - kvp.Value > _cacheExpiry)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var key in expiredKeys)
+            {
+                if (_idempotencyCache.TryRemove(key, out _))
+                {
+                    log.LogDebug($"Removed expired cache entry: {key}");
+                }
             }
         }
     }

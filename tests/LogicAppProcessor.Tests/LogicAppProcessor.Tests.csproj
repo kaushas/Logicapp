@@ -8,6 +8,8 @@
     <PackageReference Include="xunit" Version="2.4.1" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.4.3" />
     <PackageReference Include="Moq" Version="4.18.2" />
+    <PackageReference Include="Azure.Core" Version="1.46.0" />
+    <PackageReference Include="Azure.Messaging.ServiceBus" Version="7.19.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\src\LogicAppProcessor\LogicAppProcessor.csproj" />

@@ -167,6 +167,40 @@
         },
         "description": "LOG: Message parsed from ContentDataJson or base64 decoded with business context"
       },
+      "Calculate_Idempotency_Key": {
+        "type": "Compose",
+        "inputs": "@concat(\n  variables('CorrelationId'),\n  '|',\n  body('Parse_Message_Payload')?['messageId']\n)",
+        "runAfter": {
+          "Log_Message_Decoded": [
+            "Succeeded"
+          ]
+        },
+        "description": "Calculate idempotency key using configured strategy (default: correlationId|messageId for fast duplicate detection)"
+      },
+      "Check_Duplicate_In_Cache": {
+        "type": "Function",
+        "inputs": {
+          "function": "CheckDuplicate",
+          "body": {
+            "idempotencyKey": "@body('Calculate_Idempotency_Key')"
+          }
+        },
+        "runAfter": {
+          "Calculate_Idempotency_Key": [
+            "Succeeded"
+          ]
+        },
+        "runtimeConfiguration": {
+          "retryPolicy": {
+            "type": "exponential",
+            "count": 2,
+            "interval": "PT1S",
+            "maximumInterval": "PT5S",
+            "minimumInterval": "PT1S"
+          }
+        },
+        "description": "FAST PATH: Check if duplicate in function memory cache (5-min TTL, zero DB calls) - Best Practice #10"
+      },
       "Query_Inbox": {
         "type": "ApiConnection",
         "inputs": {
@@ -183,7 +217,7 @@
           }
         },
         "runAfter": {
-          "Log_Message_Decoded": [
+          "Check_Duplicate_In_Cache": [
             "Succeeded"
           ]
         },
@@ -196,7 +230,7 @@
             "minimumInterval": "PT5S"
           }
         },
-        "description": "Idempotent read - RETRY ENABLED (Best Practice #9)"
+        "description": "SAFETY NET: Query DB if cache-based duplicate check didn't catch it (rare cross-execution scenario) - Idempotent read - RETRY ENABLED (Best Practice #9)"
       },
       "Check_Inbox_For_Duplicate": {
         "type": "Compose",
@@ -215,7 +249,13 @@
       "Is_Duplicate": {
         "type": "If",
         "expression": {
-          "and": [
+          "or": [
+            {
+              "equals": [
+                "@body('Check_Duplicate_In_Cache')?['isDuplicate']",
+                true
+              ]
+            },
             {
               "equals": [
                 "@body('Check_Inbox_For_Duplicate')?['isDuplicate']",
@@ -521,6 +561,11 @@
     "contentVersion": "1.0.0.0",
     "outputs": {},
     "parameters": {
+      "IDEMPOTENCY_KEY_STRATEGY": {
+        "type": "String",
+        "defaultValue": "correlationId|messageId",
+        "description": "Strategy for deduplication key: 'correlationId|messageId' (balanced), 'messageId' (strict), or 'correlationId|messageId|entityId' (entity-aware)"
+      },
       "INPUT_QUEUE": {
         "type": "String",
         "defaultValue": "sbq-d365finops-vendor-upserts",
