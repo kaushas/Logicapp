@@ -1,0 +1,589 @@
+{
+    "definition":  {
+                       "$schema":  "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                       "actions":  {
+                                       "Debug_Log_TriggerBody":  {
+                                                                     "type":  "Compose",
+                                                                     "inputs":  "@triggerBody()",
+                                                                     "runAfter":  {
+
+                                                                                  },
+                                                                     "description":  "DEBUG: Log the full trigger body to validate structure (wrapping check)"
+                                                                 },
+                                       "Log_TriggerBody_To_Proxy":  {
+                                                                        "type":  "Http",
+                                                                        "inputs":  {
+                                                                                       "method":  "POST",
+                                                                                       "uri":  "http://localhost:7075/logpayload",
+                                                                                       "headers":  {
+                                                                                                       "Content-Type":  "application/json"
+                                                                                                   },
+                                                                                       "body":  "@triggerBody()"
+                                                                                   },
+                                                                        "runAfter":  {
+                                                                                         "Debug_Log_TriggerBody":  [
+                                                                                                                       "Succeeded"
+                                                                                                                   ]
+                                                                                     },
+                                                                        "description":  "POST trigger body to ServiceBusProxy for logging"
+                                                                    },
+                                       "Initialize_Correlation_ID":  {
+                                                                         "type":  "InitializeVariable",
+                                                                         "inputs":  {
+                                                                                        "variables":  [
+                                                                                                          {
+                                                                                                              "name":  "CorrelationId",
+                                                                                                              "type":  "string",
+                                                                                                              "value":  "@{coalesce(triggerBody()?[\u0027Properties\u0027]?[\u0027CorrelationId\u0027], triggerBody()?[\u0027CorrelationId\u0027], guid())}"
+                                                                                                          }
+                                                                                                      ]
+                                                                                    },
+                                                                         "runAfter":  {
+
+                                                                                      },
+                                                                         "description":  "Extract or generate correlation ID from Service Bus message properties - Best Practice #8"
+                                                                     },
+                                       "Log_Trigger_Received":  {
+                                                                    "type":  "Compose",
+                                                                    "inputs":  {
+                                                                                   "event":  "TriggerFired",
+                                                                                   "timestamp":  "@utcNow()",
+                                                                                   "workflow":  "process-message-vendor",
+                                                                                   "triggerOutputs":  "@triggerOutputs()",
+                                                                                   "triggerBody":  "@triggerBody()",
+                                                                                   "message":  "Service Bus trigger fired - message received from queue"
+                                                                               },
+                                                                    "runAfter":  {
+                                                                                     "Initialize_Correlation_ID":  [
+                                                                                                                       "Succeeded"
+                                                                                                                   ]
+                                                                                 },
+                                                                    "description":  "LOG: Trigger fired - captures full trigger output for debugging"
+                                                                },
+                                       "Log_Request_Received":  {
+                                                                    "type":  "Compose",
+                                                                    "inputs":  {
+                                                                                   "correlationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                   "event":  "MessageReceived",
+                                                                                   "timestamp":  "@utcNow()",
+                                                                                   "workflow":  "process-message-vendor",
+                                                                                   "messageProperties":  "@triggerBody()?[\u0027Properties\u0027]",
+                                                                                   "contentType":  "@triggerBody()?[\u0027ContentType\u0027]"
+                                                                               },
+                                                                    "runAfter":  {
+                                                                                     "Debug_Log_TriggerBody":  [
+                                                                                                                   "Succeeded"
+                                                                                                               ]
+                                                                                 },
+                                                                    "description":  "LOG: Message details - Best Practice #7"
+                                                                },
+                                       "Parse_Message_Payload":  {
+                                                                     "type":  "Compose",
+                                                                     "inputs":  {
+                                                                                    "triggerBodyDump":  "@triggerBody()",
+                                                                                    "messageId":  "@coalesce(if(not(empty(triggerBody()?[\u0027ContentDataJson\u0027])), triggerBody()?[\u0027ContentDataJson\u0027]?[\u0027messageId\u0027], if(not(empty(triggerBody()?[\u0027ContentData\u0027])), json(base64ToString(triggerBody()?[\u0027ContentData\u0027]))?[\u0027messageId\u0027], null)), triggerBody()?[\u0027MessageId\u0027], \u0027NO_MESSAGE_ID\u0027)",
+                                                                                    "hasContentDataJson":  "@not(empty(triggerBody()?[\u0027ContentDataJson\u0027]))",
+                                                                                    "hasContentData":  "@not(empty(triggerBody()?[\u0027ContentData\u0027]))",
+                                                                                    "rawPayload":  "@if(not(empty(triggerBody()?[\u0027ContentDataJson\u0027])), triggerBody()?[\u0027ContentDataJson\u0027], if(not(empty(triggerBody()?[\u0027ContentData\u0027])), json(base64ToString(triggerBody()?[\u0027ContentData\u0027])), json(\u0027{}\u0027)))",
+                                                                                    "businessMessageId":  "@coalesce(if(not(empty(triggerBody()?[\u0027ContentDataJson\u0027])), triggerBody()?[\u0027ContentDataJson\u0027]?[\u0027messageId\u0027], if(not(empty(triggerBody()?[\u0027ContentData\u0027])), json(base64ToString(triggerBody()?[\u0027ContentData\u0027]))?[\u0027messageId\u0027], null)), \u0027NO_BUSINESS_MESSAGE_ID\u0027)"
+                                                                                },
+                                                                     "runAfter":  {
+                                                                                      "Log_Request_Received":  [
+                                                                                                                   "Succeeded"
+                                                                                                               ]
+                                                                                  },
+                                                                     "description":  "Extract message ID and parse payload - ContentDataJson or base64 decode ContentData"
+                                                                 },
+                                       "Log_Parsed_Message_To_Proxy":  {
+                                                                           "type":  "Http",
+                                                                           "inputs":  {
+                                                                                          "method":  "POST",
+                                                                                          "uri":  "http://localhost:7075/logpayload",
+                                                                                          "headers":  {
+                                                                                                          "Content-Type":  "application/json"
+                                                                                                      },
+                                                                                          "body":  "@body(\u0027Parse_Message_Payload\u0027)"
+                                                                                      },
+                                                                           "runAfter":  {
+                                                                                            "Parse_Message_Payload":  [
+                                                                                                                          "Succeeded"
+                                                                                                                      ]
+                                                                                        },
+                                                                           "description":  "POST parsed message payload to ServiceBusProxy for debugging"
+                                                                       },
+                                       "Detect_Entity_Type":  {
+                                                                  "type":  "Compose",
+                                                                  "inputs":  {
+                                                                                 "eventType":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027eventType\u0027], \u0027UNKNOWN\u0027)",
+                                                                                 "sourceEntity":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027sourceEntity\u0027], \u0027UNKNOWN\u0027)",
+                                                                                 "entityType":  "ItemUnitConversion"
+                                                                             },
+                                                                  "runAfter":  {
+                                                                                   "Parse_Message_Payload":  [
+                                                                                                                 "Succeeded"
+                                                                                                             ]
+                                                                               },
+                                                                  "description":  "Detect entity type from event type (Vendor)"
+                                                              },
+                                       "Extract_Business_Context":  {
+                                                                        "type":  "Compose",
+                                                                        "inputs":  {
+                                                                                       "entityType":  "ItemUnitConversion",
+                                                                                       "eventType":  "@body(\u0027Detect_Entity_Type\u0027)?[\u0027eventType\u0027]",
+                                                                                       "sourceEntity":  "@body(\u0027Detect_Entity_Type\u0027)?[\u0027sourceEntity\u0027]",
+                                                                                       "dataAreaId":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027dataAreaId\u0027], \u0027N/A\u0027)",
+                                                                                       "sourceSystem":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027sourceSystem\u0027], \u0027N/A\u0027)",
+                                                                                       "operationType":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027operationType\u0027], \u0027N/A\u0027)",
+                                                                                       "modifiedBy":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027modifiedBy\u0027], \u0027N/A\u0027)",
+                                                                                       "modifiedDateTime":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027modifiedDateTime\u0027], \u0027N/A\u0027)",
+                                                                                       "primaryAccount":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027vendorAccount\u0027], \u0027N/A\u0027)",
+                                                                                       "organizationName":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027organizationName\u0027], \u0027N/A\u0027)",
+                                                                                       "groupId":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027vendorGroupId\u0027], \u0027N/A\u0027)",
+                                                                                       "email":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027vendorContact\u0027]?[\u0027email\u0027], \u0027N/A\u0027)",
+                                                                                       "address":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027address\u0027]?[\u0027addressDescription\u0027], \u0027N/A\u0027)",
+                                                                                       "city":  "@coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027address\u0027]?[\u0027city\u0027], \u0027N/A\u0027)"
+                                                                                   },
+                                                                        "runAfter":  {
+                                                                                         "Detect_Entity_Type":  [
+                                                                                                                    "Succeeded"
+                                                                                                                ]
+                                                                                     },
+                                                                        "description":  "Extract business context for Vendor entity"
+                                                                    },
+                                       "Log_Message_Decoded":  {
+                                                                   "type":  "Compose",
+                                                                   "inputs":  {
+                                                                                  "event":  "MessageDecoded",
+                                                                                  "timestamp":  "@utcNow()",
+                                                                                  "correlationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                  "messageId":  "@{body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027]}",
+                                                                                  "hasContentDataJson":  "@{body(\u0027Parse_Message_Payload\u0027)?[\u0027hasContentDataJson\u0027]}",
+                                                                                  "hasContentData":  "@{body(\u0027Parse_Message_Payload\u0027)?[\u0027hasContentData\u0027]}",
+                                                                                  "payloadType":  "@{coalesce(string(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]?[\u0027eventType\u0027]), \u0027UNKNOWN\u0027)}",
+                                                                                  "payloadLength":  "@length(coalesce(string(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]), \u0027\u0027))",
+                                                                                  "businessContext":  "@body(\u0027Extract_Business_Context\u0027)",
+                                                                                  "message":  "Message parsed successfully"
+                                                                              },
+                                                                   "runAfter":  {
+                                                                                    "Extract_Business_Context":  [
+                                                                                                                     "Succeeded"
+                                                                                                                 ]
+                                                                                },
+                                                                   "description":  "LOG: Message parsed from ContentDataJson or base64 decoded with business context"
+                                                               },
+                                       "Query_Inbox":  {
+                                                           "type":  "ApiConnection",
+                                                           "inputs":  {
+                                                                          "host":  {
+                                                                                       "connection":  {
+                                                                                                          "referenceName":  "sql"
+                                                                                                      }
+                                                                                   },
+                                                                          "method":  "get",
+                                                                          "path":  "/v2/datasets/@{encodeURIComponent(encodeURIComponent(\u0027default\u0027))},@{encodeURIComponent(encodeURIComponent(\u0027default\u0027))}/tables/@{encodeURIComponent(encodeURIComponent(\u0027[dbo].[Inbox]\u0027))}/items",
+                                                                          "queries":  {
+                                                                                          "$filter":  "MessageId eq \u0027@{body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027]}\u0027",
+                                                                                          "$top":  1
+                                                                                      }
+                                                                      },
+                                                           "runAfter":  {
+                                                                            "Log_Message_Decoded":  [
+                                                                                                        "Succeeded"
+                                                                                                    ]
+                                                                        },
+                                                           "runtimeConfiguration":  {
+                                                                                        "retryPolicy":  {
+                                                                                                            "type":  "exponential",
+                                                                                                            "count":  3,
+                                                                                                            "interval":  "PT5S",
+                                                                                                            "maximumInterval":  "PT20S",
+                                                                                                            "minimumInterval":  "PT5S"
+                                                                                                        }
+                                                                                    },
+                                                           "description":  "Idempotent read - RETRY ENABLED (Best Practice #9)"
+                                                       },
+                                       "Check_Inbox_For_Duplicate":  {
+                                                                         "type":  "Compose",
+                                                                         "inputs":  {
+                                                                                        "queryResults":  "@body(\u0027Query_Inbox\u0027)?[\u0027value\u0027]",
+                                                                                        "resultCount":  "@length(coalesce(body(\u0027Query_Inbox\u0027)?[\u0027value\u0027], createArray()))",
+                                                                                        "isDuplicate":  "@greater(length(coalesce(body(\u0027Query_Inbox\u0027)?[\u0027value\u0027], createArray())), 0)"
+                                                                                    },
+                                                                         "runAfter":  {
+                                                                                          "Query_Inbox":  [
+                                                                                                              "Succeeded"
+                                                                                                          ]
+                                                                                      },
+                                                                         "description":  "Check if query returned any results - indicates duplicate"
+                                                                     },
+                                       "Is_Duplicate":  {
+                                                            "type":  "If",
+                                                            "expression":  {
+                                                                               "and":  [
+                                                                                           {
+                                                                                               "equals":  [
+                                                                                                              "@body(\u0027Check_Inbox_For_Duplicate\u0027)?[\u0027isDuplicate\u0027]",
+                                                                                                              true
+                                                                                                          ]
+                                                                                           }
+                                                                                       ]
+                                                                           },
+                                                            "actions":  {
+                                                                            "Log_Duplicate_Detected":  {
+                                                                                                           "type":  "Compose",
+                                                                                                           "inputs":  {
+                                                                                                                          "correlationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                                                          "messageId":  "@body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027]",
+                                                                                                                          "event":  "DuplicateDetected",
+                                                                                                                          "timestamp":  "@utcNow()",
+                                                                                                                          "entityType":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027entityType\u0027]",
+                                                                                                                          "primaryAccount":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027primaryAccount\u0027]",
+                                                                                                                          "organizationName":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027organizationName\u0027]",
+                                                                                                                          "modifiedBy":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027modifiedBy\u0027]",
+                                                                                                                          "modifiedDateTime":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027modifiedDateTime\u0027]",
+                                                                                                                          "dataAreaId":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027dataAreaId\u0027]",
+                                                                                                                          "eventType":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027eventType\u0027]",
+                                                                                                                          "operationType":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027operationType\u0027]",
+                                                                                                                          "businessContext":  "@body(\u0027Extract_Business_Context\u0027)",
+                                                                                                                          "severity":  "Warning"
+                                                                                                                      },
+                                                                                                           "runAfter":  {
+
+                                                                                                                        },
+                                                                                                           "description":  "Log duplicate to Application Insights with entity-specific business context"
+                                                                                                       },
+                                                                            "Terminate_Duplicate":  {
+                                                                                                        "type":  "Terminate",
+                                                                                                        "inputs":  {
+                                                                                                                       "runStatus":  "Succeeded"
+                                                                                                                   },
+                                                                                                        "runAfter":  {
+                                                                                                                         "Log_Duplicate_Detected":  [
+                                                                                                                                                        "Succeeded"
+                                                                                                                                                    ]
+                                                                                                                     },
+                                                                                                        "description":  "Terminate successfully - duplicate message already processed"
+                                                                                                    }
+                                                                        },
+                                                            "runAfter":  {
+                                                                             "Check_Inbox_For_Duplicate":  [
+                                                                                                               "Succeeded"
+                                                                                                           ]
+                                                                         },
+                                                            "else":  {
+                                                                         "actions":  {
+                                                                                         "Insert_Into_Inbox":  {
+                                                                                                                   "type":  "ApiConnection",
+                                                                                                                   "inputs":  {
+                                                                                                                                  "host":  {
+                                                                                                                                               "connection":  {
+                                                                                                                                                                  "referenceName":  "sql"
+                                                                                                                                                              }
+                                                                                                                                           },
+                                                                                                                                  "method":  "post",
+                                                                                                                                  "body":  {
+                                                                                                                                               "MessageId":  "@body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027]",
+                                                                                                                                               "SourceTopic":  "@parameters(\u0027DEFAULT_SOURCE_TOPIC\u0027)",
+                                                                                                                                               "CorrelationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                                                                               "RawPayload":  "@string(body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027])",
+                                                                                                                                               "ReceivedAt":  "@utcNow()"
+                                                                                                                                           },
+                                                                                                                                  "path":  "/v2/datasets/@{encodeURIComponent(encodeURIComponent(\u0027default\u0027))},@{encodeURIComponent(encodeURIComponent(\u0027default\u0027))}/tables/@{encodeURIComponent(encodeURIComponent(\u0027[dbo].[Inbox]\u0027))}/items"
+                                                                                                                              },
+                                                                                                                   "runAfter":  {
+
+                                                                                                                                },
+                                                                                                                   "runtimeConfiguration":  {
+                                                                                                                                                "retryPolicy":  {
+                                                                                                                                                                    "type":  "none"
+                                                                                                                                                                }
+                                                                                                                                            },
+                                                                                                                   "description":  "Idempotent by UNIQUE constraint on MessageId - RETRY DISABLED (Best Practice #9)"
+                                                                                                               },
+                                                                                         "Determine_Template_Name":  {
+                                                                                                                         "type":  "Compose",
+                                                                                                                         "inputs":  "@parameters(\u0027TEMPLATE_NAME\u0027)",
+                                                                                                                         "runAfter":  {
+                                                                                                                                          "Insert_Into_Inbox":  [
+                                                                                                                                                                    "Succeeded"
+                                                                                                                                                                ]
+                                                                                                                                      },
+                                                                                                                         "description":  "Template name from parameter - uses Liquid template specified in deployment"
+                                                                                                                     },
+                                                                                         "Transform_With_Liquid":  {
+                                                                                                                       "type":  "Liquid",
+                                                                                                                       "kind":  "JsonToJson",
+                                                                                                                       "inputs":  {
+                                                                                                                                      "content":  "@body(\u0027Parse_Message_Payload\u0027)?[\u0027rawPayload\u0027]",
+                                                                                                                                      "map":  {
+                                                                                                                                                  "source":  "LogicApp",
+                                                                                                                                                  "name":  "@{outputs(\u0027Determine_Template_Name\u0027)}.liquid"
+                                                                                                                                              }
+                                                                                                                                  },
+                                                                                                                       "runAfter":  {
+                                                                                                                                        "Determine_Template_Name":  [
+                                                                                                                                                                        "Succeeded"
+                                                                                                                                                                    ]
+                                                                                                                                    },
+                                                                                                                       "runtimeConfiguration":  {
+                                                                                                                                                    "retryPolicy":  {
+                                                                                                                                                                        "type":  "none"
+                                                                                                                                                                    }
+                                                                                                                                                },
+                                                                                                                       "description":  "Deterministic transformation - RETRY DISABLED (Best Practice #4)"
+                                                                                                                   },
+                                                                                         "Parse_Canonical_Event":  {
+                                                                                                                       "type":  "ParseJson",
+                                                                                                                       "inputs":  {
+                                                                                                                                      "content":  "@body(\u0027Transform_With_Liquid\u0027)",
+                                                                                                                                      "schema":  {
+                                                                                                                                                     "type":  "object",
+                                                                                                                                                     "properties":  {
+                                                                                                                                                                        "eventType":  {
+                                                                                                                                                                                          "type":  "string"
+                                                                                                                                                                                      },
+                                                                                                                                                                        "subject":  {
+                                                                                                                                                                                        "type":  "string"
+                                                                                                                                                                                    },
+                                                                                                                                                                        "source":  {
+                                                                                                                                                                                       "type":  "string"
+                                                                                                                                                                                   },
+                                                                                                                                                                        "eventTime":  {
+                                                                                                                                                                                          "type":  "string"
+                                                                                                                                                                                      },
+                                                                                                                                                                        "schemaVersion":  {
+                                                                                                                                                                                              "type":  "string"
+                                                                                                                                                                                          },
+                                                                                                                                                                        "contentType":  {
+                                                                                                                                                                                            "type":  "string"
+                                                                                                                                                                                        },
+                                                                                                                                                                        "correlationId":  {
+                                                                                                                                                                                              "type":  "string"
+                                                                                                                                                                                          },
+                                                                                                                                                                        "data":  {
+                                                                                                                                                                                     "type":  "object"
+                                                                                                                                                                                 }
+                                                                                                                                                                    }
+                                                                                                                                                 }
+                                                                                                                                  },
+                                                                                                                       "runAfter":  {
+                                                                                                                                        "Transform_With_Liquid":  [
+                                                                                                                                                                      "Succeeded"
+                                                                                                                                                                  ]
+                                                                                                                                    }
+                                                                                                                   },
+                                                                                         "Insert_Into_Outbox":  {
+                                                                                                                    "type":  "ApiConnection",
+                                                                                                                    "inputs":  {
+                                                                                                                                   "host":  {
+                                                                                                                                                "connection":  {
+                                                                                                                                                                   "referenceName":  "sql"
+                                                                                                                                                               }
+                                                                                                                                            },
+                                                                                                                                   "method":  "post",
+                                                                                                                                   "body":  {
+                                                                                                                                                "MessageId":  "@body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027]",
+                                                                                                                                                "Destination":  "@parameters(\u0027OUTPUT_TOPIC\u0027)",
+                                                                                                                                                "CorrelationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                                                                                "Payload":  "@string(body(\u0027Transform_With_Liquid\u0027))",
+                                                                                                                                                "CreatedAt":  "@utcNow()",
+                                                                                                                                                "Sent":  false,
+                                                                                                                                                "RetryCount":  0
+                                                                                                                                            },
+                                                                                                                                   "path":  "/v2/datasets/@{encodeURIComponent(encodeURIComponent(\u0027default\u0027))},@{encodeURIComponent(encodeURIComponent(\u0027default\u0027))}/tables/@{encodeURIComponent(encodeURIComponent(\u0027[dbo].[Outbox]\u0027))}/items"
+                                                                                                                               },
+                                                                                                                    "runAfter":  {
+                                                                                                                                     "Parse_Canonical_Event":  [
+                                                                                                                                                                   "Succeeded"
+                                                                                                                                                               ]
+                                                                                                                                 },
+                                                                                                                    "runtimeConfiguration":  {
+                                                                                                                                                 "retryPolicy":  {
+                                                                                                                                                                     "type":  "none"
+                                                                                                                                                                 }
+                                                                                                                                             },
+                                                                                                                    "description":  "Insert canonical event to Outbox with OUTPUT_TOPIC as destination"
+                                                                                                                },
+                                                                                         "Publish_To_Service_Bus_Topic":  {
+                                                                                                                              "type":  "ApiConnection",
+                                                                                                                              "inputs":  {
+                                                                                                                                             "host":  {
+                                                                                                                                                          "connection":  {
+                                                                                                                                                                             "referenceName":  "servicebus"
+                                                                                                                                                                         }
+                                                                                                                                                      },
+                                                                                                                                             "method":  "post",
+                                                                                                                                             "body":  {
+                                                                                                                                                          "ContentData":  "@base64(string(body(\u0027Transform_With_Liquid\u0027)))",
+                                                                                                                                                          "Properties":  {
+                                                                                                                                                                             "CorrelationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                                                                                                             "MessageId":  "@body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027]",
+                                                                                                                                                                             "EntityType":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027entityType\u0027]",
+                                                                                                                                                                             "SourceSystem":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027sourceSystem\u0027]"
+                                                                                                                                                                         }
+                                                                                                                                                      },
+                                                                                                                                             "path":  "/@{encodeURIComponent(encodeURIComponent(parameters(\u0027OUTPUT_TOPIC\u0027)))}/messages"
+                                                                                                                                         },
+                                                                                                                              "runAfter":  {
+                                                                                                                                               "Insert_Into_Outbox":  [
+                                                                                                                                                                          "Succeeded"
+                                                                                                                                                                      ]
+                                                                                                                                           },
+                                                                                                                              "runtimeConfiguration":  {
+                                                                                                                                                           "retryPolicy":  {
+                                                                                                                                                                               "type":  "none"
+                                                                                                                                                                           }
+                                                                                                                                                       },
+                                                                                                                              "description":  "Publish canonical event to output topic specified in parameter"
+                                                                                                                          },
+                                                                                         "Log_Message_Queued":  {
+                                                                                                                    "type":  "Compose",
+                                                                                                                    "inputs":  {
+                                                                                                                                   "correlationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                                                                   "messageId":  "@body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027]",
+                                                                                                                                   "eventType":  "@body(\u0027Parse_Canonical_Event\u0027)?[\u0027eventType\u0027]",
+                                                                                                                                   "event":  "MessageQueued",
+                                                                                                                                   "timestamp":  "@utcNow()",
+                                                                                                                                   "entityType":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027entityType\u0027]",
+                                                                                                                                   "primaryAccount":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027primaryAccount\u0027]",
+                                                                                                                                   "organizationName":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027organizationName\u0027]",
+                                                                                                                                   "modifiedBy":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027modifiedBy\u0027]",
+                                                                                                                                   "modifiedDateTime":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027modifiedDateTime\u0027]",
+                                                                                                                                   "dataAreaId":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027dataAreaId\u0027]",
+                                                                                                                                   "operationType":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027operationType\u0027]",
+                                                                                                                                   "sourceEntity":  "@body(\u0027Extract_Business_Context\u0027)?[\u0027sourceEntity\u0027]",
+                                                                                                                                   "outputTopic":  "@parameters(\u0027OUTPUT_TOPIC\u0027)",
+                                                                                                                                   "businessContext":  "@body(\u0027Extract_Business_Context\u0027)",
+                                                                                                                                   "severity":  "Information"
+                                                                                                                               },
+                                                                                                                    "runAfter":  {
+                                                                                                                                     "Publish_To_Service_Bus_Topic":  [
+                                                                                                                                                                          "Succeeded"
+                                                                                                                                                                      ]
+                                                                                                                                 },
+                                                                                                                    "description":  "Log to Application Insights - message published to output topic"
+                                                                                                                },
+                                                                                         "Terminate_Success":  {
+                                                                                                                   "type":  "Terminate",
+                                                                                                                   "inputs":  {
+                                                                                                                                  "runStatus":  "Succeeded"
+                                                                                                                              },
+                                                                                                                   "runAfter":  {
+                                                                                                                                    "Log_Message_Queued":  [
+                                                                                                                                                               "Succeeded"
+                                                                                                                                                           ]
+                                                                                                                                },
+                                                                                                                   "description":  "Terminate successfully - message processed and queued"
+                                                                                                               }
+                                                                                     }
+                                                                     }
+                                                        },
+                                       "Handle_Error":  {
+                                                            "type":  "Scope",
+                                                            "actions":  {
+                                                                            "Log_Error":  {
+                                                                                              "type":  "Compose",
+                                                                                              "inputs":  {
+                                                                                                             "correlationId":  "@variables(\u0027CorrelationId\u0027)",
+                                                                                                             "messageId":  "@{coalesce(body(\u0027Parse_Message_Payload\u0027)?[\u0027messageId\u0027], \u0027UNKNOWN\u0027)}",
+                                                                                                             "event":  "ProcessingError",
+                                                                                                             "error":  "@result(\u0027Is_Duplicate\u0027)",
+                                                                                                             "timestamp":  "@utcNow()",
+                                                                                                             "entityType":  "@coalesce(body(\u0027Extract_Business_Context\u0027)?[\u0027entityType\u0027], \u0027UNKNOWN\u0027)",
+                                                                                                             "primaryAccount":  "@coalesce(body(\u0027Extract_Business_Context\u0027)?[\u0027primaryAccount\u0027], \u0027N/A\u0027)",
+                                                                                                             "modifiedBy":  "@coalesce(body(\u0027Extract_Business_Context\u0027)?[\u0027modifiedBy\u0027], \u0027N/A\u0027)",
+                                                                                                             "dataAreaId":  "@coalesce(body(\u0027Extract_Business_Context\u0027)?[\u0027dataAreaId\u0027], \u0027N/A\u0027)",
+                                                                                                             "businessContext":  "@if(not(empty(outputs(\u0027Extract_Business_Context\u0027))), body(\u0027Extract_Business_Context\u0027), createObject())",
+                                                                                                             "severity":  "Error"
+                                                                                                         },
+                                                                                              "runAfter":  {
+
+                                                                                                           },
+                                                                                              "description":  "Log error to Application Insights with entity-specific business context - Best Practice #7"
+                                                                                          },
+                                                                            "Terminate_Error":  {
+                                                                                                    "type":  "Terminate",
+                                                                                                    "inputs":  {
+                                                                                                                   "runStatus":  "Failed",
+                                                                                                                   "runError":  {
+                                                                                                                                    "code":  "ProcessingError",
+                                                                                                                                    "message":  "Message processing failed - correlation ID: @{variables(\u0027CorrelationId\u0027)}"
+                                                                                                                                }
+                                                                                                               },
+                                                                                                    "runAfter":  {
+                                                                                                                     "Log_Error":  [
+                                                                                                                                       "Succeeded"
+                                                                                                                                   ]
+                                                                                                                 },
+                                                                                                    "description":  "Terminate with failure - processing error"
+                                                                                                }
+                                                                        },
+                                                            "runAfter":  {
+                                                                             "Is_Duplicate":  [
+                                                                                                  "Failed",
+                                                                                                  "TimedOut",
+                                                                                                  "Skipped"
+                                                                                              ]
+                                                                         },
+                                                            "description":  "Error handling scope - Best Practice #6"
+                                                        }
+                                   },
+                       "contentVersion":  "1.0.0.0",
+                       "outputs":  {
+
+                                   },
+                       "parameters":  {
+                                          "INPUT_QUEUE":  {
+                                                              "type":  "String",
+                                                              "defaultValue":  "sbq-d365finops-itemunitconversion-upserts",
+                                                              "description":  "Service Bus queue to listen to"
+                                                          },
+                                          "TEMPLATE_NAME":  {
+                                                                "type":  "String",
+                                                                "defaultValue":  "itemUnitConversionToCanonical",
+                                                                "description":  "Liquid template name for transformation"
+                                                            },
+                                          "OUTPUT_TOPIC":  {
+                                                               "type":  "String",
+                                                               "defaultValue":  "sbt-d365-finops-UnitOfMeasureChanged",
+                                                               "description":  "Service Bus topic to publish canonical event"
+                                                           },
+                                          "DEFAULT_SOURCE_TOPIC":  {
+                                                                       "type":  "String",
+                                                                       "defaultValue":  "itemUnitConversionToCanonical"
+                                                                   },
+                                          "D365_VENDOR_QUEUE":  {
+                                                                    "type":  "String",
+                                                                    "defaultValue":  "sbq-d365finops-vendor-upserts"
+                                                                }
+                                      },
+                       "triggers":  {
+                                        "When_a_message_is_received_in_a_queue":  {
+                                                                                      "type":  "ApiConnection",
+                                                                                      "inputs":  {
+                                                                                                     "host":  {
+                                                                                                                  "connection":  {
+                                                                                                                                     "referenceName":  "servicebus"
+                                                                                                                                 }
+                                                                                                              },
+                                                                                                     "method":  "get",
+                                                                                                     "path":  "/@{encodeURIComponent(encodeURIComponent(parameters(\u0027INPUT_QUEUE\u0027)))}/messages/head",
+                                                                                                     "queries":  {
+                                                                                                                     "queueType":  "Main"
+                                                                                                                 }
+                                                                                                 },
+                                                                                      "recurrence":  {
+                                                                                                         "frequency":  "Second",
+                                                                                                         "interval":  30
+                                                                                                     },
+                                                                                      "conditions":  [
+                                                                                                         {
+                                                                                                             "expression":  "@not(equals(coalesce(appsetting(\u0027USE_HTTP_TRIGGER_FOR_LOCAL\u0027), \u0027false\u0027), \u0027true\u0027))"
+                                                                                                         }
+                                                                                                     ],
+                                                                                      "description":  "Service Bus queue trigger - retrieves messages from INPUT_QUEUE parameter. Polls every 30 seconds"
+                                                                                  }
+                                    }
+                   },
+    "kind":  "Stateful"
+}

@@ -44,7 +44,7 @@
         "inputs": {
           "event": "TriggerFired",
           "timestamp": "@utcNow()",
-          "workflow": "process-message",
+          "workflow": "process-message-vendor",
           "triggerOutputs": "@triggerOutputs()",
           "triggerBody": "@triggerBody()",
           "message": "Service Bus trigger fired - message received from queue"
@@ -62,7 +62,7 @@
           "correlationId": "@variables('CorrelationId')",
           "event": "MessageReceived",
           "timestamp": "@utcNow()",
-          "workflow": "process-message",
+          "workflow": "process-message-vendor",
           "messageProperties": "@triggerBody()?['Properties']",
           "contentType": "@triggerBody()?['ContentType']"
         },
@@ -112,14 +112,14 @@
         "inputs": {
           "eventType": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['eventType'], 'UNKNOWN')",
           "sourceEntity": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['sourceEntity'], 'UNKNOWN')",
-          "entityType": "@if(contains(coalesce(body('Parse_Message_Payload')?['rawPayload']?['eventType'], ''), 'Customer'), 'Customer', if(contains(coalesce(body('Parse_Message_Payload')?['rawPayload']?['eventType'], ''), 'Vendor'), 'Vendor', if(contains(coalesce(body('Parse_Message_Payload')?['rawPayload']?['eventType'], ''), 'Item'), 'Item', 'Unknown')))"
+          "entityType": "@if(contains(coalesce(body('Parse_Message_Payload')?['rawPayload']?['eventType'], ''), 'Vendor'), 'Vendor', 'Unknown')"
         },
         "runAfter": {
           "Parse_Message_Payload": [
             "Succeeded"
           ]
         },
-        "description": "Detect entity type from event type (Customer/Vendor/Item/Address)"
+        "description": "Detect entity type from event type (Vendor)"
       },
       "Extract_Business_Context": {
         "type": "Compose",
@@ -132,21 +132,19 @@
           "operationType": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['operationType'], 'N/A')",
           "modifiedBy": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['modifiedBy'], 'N/A')",
           "modifiedDateTime": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['modifiedDateTime'], 'N/A')",
-          "primaryAccount": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['customerAccount'], body('Parse_Message_Payload')?['rawPayload']?['vendorAccount'], body('Parse_Message_Payload')?['rawPayload']?['itemId'], 'N/A')",
+          "primaryAccount": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['vendorAccount'], 'N/A')",
           "organizationName": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['organizationName'], 'N/A')",
-          "groupId": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['customerGroupId'], body('Parse_Message_Payload')?['rawPayload']?['vendorGroupId'], body('Parse_Message_Payload')?['rawPayload']?['productGroupId'], 'N/A')",
-          "email": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['contact']?['email'], body('Parse_Message_Payload')?['rawPayload']?['vendorContact']?['email'], 'N/A')",
-          "address": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['address']?['addressDescription'], body('Parse_Message_Payload')?['rawPayload']?['addressDescription'], 'N/A')",
-          "city": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['address']?['city'], body('Parse_Message_Payload')?['rawPayload']?['city'], 'N/A')",
-          "itemDescription": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['itemDescription'], 'N/A')",
-          "warehouseId": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['warehouseId'], 'N/A')"
+          "groupId": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['vendorGroupId'], 'N/A')",
+          "email": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['vendorContact']?['email'], 'N/A')",
+          "address": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['address']?['addressDescription'], 'N/A')",
+          "city": "@coalesce(body('Parse_Message_Payload')?['rawPayload']?['address']?['city'], 'N/A')"
         },
         "runAfter": {
           "Detect_Entity_Type": [
             "Succeeded"
           ]
         },
-        "description": "Extract business context dynamically based on entity type for troubleshooting across all D365 entities"
+        "description": "Extract business context for Vendor entity"
       },
       "Log_Message_Decoded": {
         "type": "Compose",
@@ -525,46 +523,26 @@
     "parameters": {
       "INPUT_QUEUE": {
         "type": "String",
-        "defaultValue": "sbq-d365finops-customer-upserts",
+        "defaultValue": "sbq-d365finops-vendor-upserts",
         "description": "Service Bus queue to listen to"
       },
       "TEMPLATE_NAME": {
         "type": "String",
-        "defaultValue": "customerToCanonical",
+        "defaultValue": "vendorToCanonical",
         "description": "Liquid template name for transformation"
       },
       "OUTPUT_TOPIC": {
         "type": "String",
-        "defaultValue": "sbt-d365-finops-CustomerChanged",
+        "defaultValue": "sbt-d365-finops-VendorChanged",
         "description": "Service Bus topic to publish canonical event"
       },
       "DEFAULT_SOURCE_TOPIC": {
         "type": "String",
-        "defaultValue": "customerToCanonical"
-      },
-      "D365_CUSTOMER_QUEUE": {
-        "type": "String",
-        "defaultValue": "sbq-d365finops-customer-upserts"
-      },
-      "D365_CUSTOMERADDRESS_QUEUE": {
-        "type": "String",
-        "defaultValue": "sbq-d365finops-customeraddress-upserts"
+        "defaultValue": "vendorToCanonical"
       },
       "D365_VENDOR_QUEUE": {
         "type": "String",
         "defaultValue": "sbq-d365finops-vendor-upserts"
-      },
-      "D365_VENDORADDRESS_QUEUE": {
-        "type": "String",
-        "defaultValue": "sbq-d365finops-vendoraddress-upserts"
-      },
-      "D365_ITEM_QUEUE": {
-        "type": "String",
-        "defaultValue": "sbq-d365finops-item-upserts"
-      },
-      "D365_ITEMUNITCONVERSION_QUEUE": {
-        "type": "String",
-        "defaultValue": "sbq-d365finops-itemunitconversion-upserts"
       }
     },
     "triggers": {

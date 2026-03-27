@@ -61,6 +61,126 @@ Or use Azure Portal:
 4. Max delivery count: 10
 5. Lock duration: 5 minutes
 
+## Supported Queues and Entity Types
+
+The `process-message` workflow is designed to process multiple D365 entity types, each with its own dedicated queue. The workflow can be deployed multiple times, with each instance listening to a different queue.
+
+### Queue Mapping
+
+| Entity Type | Queue Name | Parameter | Use Case |
+|-----|-----|-----|-----|
+| **Customer** | `sbq-d365finops-customer-upserts` | `D365_CUSTOMER_QUEUE` | Customer master data create/update |
+| **Customer Address** | `sbq-d365finops-customeraddress-upserts` | `D365_CUSTOMERADDRESS_QUEUE` | Shipping/billing addresses for customers |
+| **Vendor** | `sbq-d365finops-vendor-upserts` | `D365_VENDOR_QUEUE` | Vendor master data create/update |
+| **Vendor Address** | `sbq-d365finops-vendoraddress-upserts` | `D365_VENDORADDRESS_QUEUE` | Vendor site/location addresses |
+| **Item** | `sbq-d365finops-item-upserts` | `D365_ITEM_QUEUE` | Product/inventory master data |
+| **Item Unit Conversion** | `sbq-d365finops-itemunitconversion-upserts` | `D365_ITEMUNITCONVERSION_QUEUE` | Unit of measure conversions |
+
+### Queue Configuration
+
+Each workflow instance listens to ONE queue via the `ACTIVE_QUEUE_TYPE` parameter:
+
+```json
+"ACTIVE_QUEUE_TYPE": "customer" // Options: customer, customeraddress, vendor, vendoraddress, item, itemunitconversion
+```
+
+### Deployment Scenarios
+
+#### Local Development (Single Queue)
+
+For local testing, run ONE instance listening to a specific queue:
+
+```powershell
+# Start Logic App configured for Customer queue
+cd LogicApp\sktestlogicapp
+func host start --port 7071
+```
+
+The default `ACTIVE_QUEUE_TYPE` is **"customer"**. Update by setting an environment variable or modifying `local.settings.json`:
+
+```json
+{
+  "Values": {
+    "ACTIVE_QUEUE_TYPE": "customer"
+  }
+}
+```
+
+#### Azure Deployment (Multiple Instances)
+
+Deploy multiple instances of the workflow, each with a different `ACTIVE_QUEUE_TYPE`:
+
+**Instance 1: Customer**
+```bash
+az resource create \
+  --resource-group YOUR_RG \
+  --resource-type "Microsoft.Web/sites/workflows" \
+  --name "logicapp/process-message-customer" \
+  --properties '{
+    "files": {
+      "workflow.json": {...},
+      "connections.json": {...}
+    },
+    "parameters": {
+      "ACTIVE_QUEUE_TYPE": { "value": "customer" },
+      "DEFAULT_SOURCE_TOPIC": { "value": "customerToCanonical" }
+    }
+  }'
+```
+
+**Instance 2: Vendor**
+```bash
+az resource create \
+  --resource-group YOUR_RG \
+  --resource-type "Microsoft.Web/sites/workflows" \
+  --name "logicapp/process-message-vendor" \
+  --properties '{
+    "parameters": {
+      "ACTIVE_QUEUE_TYPE": { "value": "vendor" },
+      "DEFAULT_SOURCE_TOPIC": { "value": "vendorToCanonical" }
+    }
+  }'
+```
+
+**Instance 3: Item**
+```bash
+az resource create \
+  --resource-group YOUR_RG \
+  --resource-type "Microsoft.Web/sites/workflows" \
+  --name "logicapp/process-message-item" \
+  --properties '{
+    "parameters": {
+      "ACTIVE_QUEUE_TYPE": { "value": "item" },
+      "DEFAULT_SOURCE_TOPIC": { "value": "itemToCanonical" }
+    }
+  }'
+```
+
+Or use the infrastructure Bicep template to define all instances:
+
+```bicep
+param logicAppDeployments array = [
+  {
+    name: 'process-message-customer'
+    queueType: 'customer'
+    sourceTopic: 'customerToCanonical'
+  }
+  {
+    name: 'process-message-vendor'
+    queueType: 'vendor'
+    sourceTopic: 'vendorToCanonical'
+  }
+  {
+    name: 'process-message-item'
+    queueType: 'item'
+    sourceTopic: 'itemToCanonical'
+  }
+  // Add more as needed...
+]
+```
+
+---
+
 ## Running Locally
 
 ### Option 1: Hybrid Mode with ServiceBusProxy (Recommended for Local Development)

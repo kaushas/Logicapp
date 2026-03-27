@@ -239,9 +239,17 @@ Located in `/LogicApp/sktestlogicapp/Artifacts/Maps/`
 
 For local development, we recommend using **Hybrid Mode**, which runs Logic Apps locally while connecting to cloud Azure Service Bus through a local proxy.
 
-📖 **For detailed local development instructions, see [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md)**
+📖 **For detailed local development and multi-queue setup, see [LOCAL-DEVELOPMENT.md](LOCAL-DEVELOPMENT.md)**
 
-**Quick Setup:**
+**Multi-Queue Support:**
+The workflow processes 6 different D365 entity types, each from its own dedicated queue:
+- 🔵 Customer & Customer Address
+- 🟣 Vendor & Vendor Address  
+- 🟡 Item & Item Unit Conversion
+
+Each queue runs a separate workflow instance configured with `ACTIVE_QUEUE_TYPE` parameter.
+
+**Quick Setup (single queue):**
 1. Start **Azurite** (local storage emulator): `azurite`
 2. Start **ServiceBusProxy** (port 7075): `cd src\ServiceBusProxy && func host start --port 7075`
 3. Start **Logic App** (port 7071): `cd LogicApp\sktestlogicapp && func host start --port 7071`
@@ -253,9 +261,9 @@ For local development, we recommend using **Hybrid Mode**, which runs Logic Apps
 - ✅ ServiceBusProxy function (`src/ServiceBusProxy/`)
 
 **Hybrid Mode Benefits:**
-- 🎯 Local testing with real Azure Service Bus
+- 🎯 Each entity type processes from dedicated queue
 - 🐛 Full debugging in VS Code
-- 📊 Monitor via Azure Portal
+- 📊 Monitor via Azure Portal  
 - 🚀 Same configuration as production (just different URLs)
 
 ---
